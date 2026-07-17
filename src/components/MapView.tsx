@@ -1,12 +1,13 @@
 'use client'
 
 import { useEffect, useRef } from 'react'
-import { MapContainer, TileLayer, Marker, useMap, useMapEvents, CircleMarker, Circle } from 'react-leaflet'
+import { MapContainer, Marker, useMap, useMapEvents, CircleMarker, Circle } from 'react-leaflet'
 import L from 'leaflet'
 import 'leaflet/dist/leaflet.css'
-import { getTileConfig } from '@/lib/tiles'
+
 import type { Store, ViewMode } from '@/lib/types'
 import MenuLabels from './MenuLabels'
+import VectorTiles from './VectorTiles'
 import type { Cluster } from '@/lib/cluster'
 
 // 마커는 "식당 단위"로 유지한다.
@@ -143,7 +144,6 @@ export default function MapView({
   /** 지도 빈 곳을 누르면 하단 시트를 닫는다 */
   onPopupClose: () => void
 }) {
-  const tile = getTileConfig()
 
   return (
     <MapContainer
@@ -155,7 +155,9 @@ export default function MapView({
       maxBounds={[[37.35, 126.7], [37.75, 127.25]]}
       minZoom={11}
     >
-      <TileLayer url={tile.url} attribution={tile.attribution} maxZoom={tile.maxZoom} />
+      {/* 바닥은 OpenFreeMap Positron 벡터 타일. OSM 기본 타일은 POI 아이콘이 잔뜩
+          박혀 있어 그 위에 얹은 메뉴 박스와 인출선이 묻혔다. */}
+      <VectorTiles />
 
       {/* 현재 위치 — 지도 우측 상단.
           누를 때마다 1회만 조회한다. 실시간 추적(watchPosition)은 쓰지 않는다:

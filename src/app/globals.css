@@ -527,24 +527,9 @@ body {
   display: none;
 }
 
-/* 지도 바닥을 차분하게.
-   OSM 기본 타일은 도로가 노랑/주황이고 건물도 알록달록해서, 그 위에 얹은 주황 마커가
-   배경에 묻힌다. 지도는 배경이고 주인공은 가격이어야 한다.
-   채도를 죽이고 살짝 밝혀 애플 지도 같은 바닥을 만든다 — 타일을 건드리는 게 아니라
-   렌더링만 바꾸는 것이라 OSM 정책과 무관하고 attribution도 그대로다. */
-.leaflet-tile-pane {
-  filter: saturate(0.32) contrast(0.92) brightness(1.06);
-}
-@media (prefers-color-scheme: dark) {
-  /* 다크에서는 반전시키되 색상환을 되돌려 물이 빨개지지 않게 한다 */
-  .leaflet-tile-pane {
-    filter: invert(0.92) hue-rotate(180deg) saturate(0.28) contrast(0.86) brightness(1.05);
-  }
-}
-/* 대비를 올리라는 설정이면 바닥을 흐리지 않는다 */
-@media (prefers-contrast: more) {
-  .leaflet-tile-pane { filter: none; }
-}
+/* 지도 바닥은 OpenFreeMap Positron이다 — 이미 POI를 걷어낸 회색 지도라
+   채도 필터를 또 씌울 필요가 없다. OSM 기본 타일을 쓸 때는 필터로 색을 죽였지만,
+   아이콘은 타일에 구워져 있어서 색만 죽을 뿐 사라지지 않았다. 바닥을 바꾸는 게 답이었다. */
 
 /* Leaflet 기본 attribution이 너무 크다 */
 .leaflet-control-attribution {
