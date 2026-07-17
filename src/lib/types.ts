@@ -8,6 +8,8 @@ export type Menu = {
   price: number
   is_available: boolean
   verified_at: string
+  /** 사진 없는 게 기본이다. 없으면 UI가 자리표시를 채운다. */
+  image_url: string | null
 }
 
 export type Store = {
@@ -33,3 +35,9 @@ export type MenuRow = Menu & {
 }
 
 export type ViewMode = 'store' | 'menu'
+
+/**
+ * 검색 영역. 사각형이 아니라 "화면 중심에서 반경"이다.
+ * 화면에 원을 그려 "여기까지 찾았다"고 말하려면 검색도 원이어야 하기 때문이다.
+ */
+export type Area = { lat: number; lng: number; radiusM: number; zoom: number }

@@ -2,11 +2,15 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import dynamic from 'next/dynamic'
-import type { LatLngBounds } from 'leaflet'
-import type { Store, MenuRow, ViewMode } from '@/lib/types'
+import type { Map as LeafletMap } from 'leaflet'
+import type { Store, MenuRow, ViewMode, Area } from '@/lib/types'
 import { distanceMeters, walkMinutes } from '@/lib/coords'
+import { visibleRadius, radiusLabel } from '@/lib/geo'
 import { initAnalytics, track, DwellTimer } from '@/lib/analytics'
 import { CATEGORY_FILTERS } from '@/lib/categories'
+import StoreCard from '@/components/StoreCard'
+import Segmented from '@/components/Segmented'
+import { CLUSTER_ZOOM, type Cluster } from '@/lib/cluster'
 
 // Leaflet은 window를 직접 만지므로 서버에서 렌더하면 터진다.
 const MapView = dynamic(() => import('@/components/MapView'), {
@@ -25,12 +29,24 @@ export default function Home() {
   const [selectedId, setSelectedId] = useState<string | null>(null)
   const [userLocation, setUserLocation] = useState<{ lat: number; lng: number } | null>(null)
   const [flyTo, setFlyTo] = useState<[number, number] | null>(null)
-  const [bounds, setBounds] = useState<LatLngBounds | null>(null)
-  const [staleBounds, setStaleBounds] = useState<LatLngBounds | null>(null)
+  // 검색 단위는 화면 중심 + 반경이다 (사각형이 아니라).
+  const [area, setArea] = useState<Area | null>(null)
+  // 지도를 움직였지만 아직 다시 찾지 않은 영역
+  const [stale, setStale] = useState<Area | null>(null)
+  // 실제로 검색이 끝난 영역. 이것만 지도에 원으로 그린다.
+  // 지도를 움직이는 중에 원이 따라다니면 아직 안 찾은 범위를 찾은 척하게 된다.
+  const [searched, setSearched] = useState<Area | null>(null)
   const [variant, setVariant] = useState<string | null>(null)
   const [points, setPoints] = useState(0)
   const [truncated, setTruncated] = useState(false)
   const [hasDemo, setHasDemo] = useState(false)
+  const [locating, setLocating] = useState(false)
+  // 마커를 눌러 카드를 띄운 가게. 목록 클릭만으로는 카드를 띄우지 않는다.
+  const [cardStoreId, setCardStoreId] = useState<string | null>(null)
+  const [clusters, setClusters] = useState<Cluster[]>([])
+  // onMove 콜백이 직전 줌을 알아야 클러스터 경계를 넘었는지 판단할 수 있다.
+  // 렌더에 쓰이지 않으므로 상태가 아니라 ref다.
+  const zoomRef = useRef(15)
   // 결과가 0일 때, 이 지역에 가게 자체는 몇 곳 있는지 (메뉴만 아직 없음)
   const [emptyAreaStores, setEmptyAreaStores] = useState(0)
 
@@ -71,53 +87,75 @@ export default function Home() {
   // 필터 값을 상태에서 읽지 않고 인자로 받는다.
   // 그래야 필터를 누른 즉시(상태 반영을 기다리지 않고) 새 조건으로 조회할 수 있고,
   // 조회를 effect에 의존시키지 않아도 된다.
-  const fetchStores = useCallback(async (b: LatLngBounds, price: number, categories: string[]) => {
-    setLoading(true)
-    const p = new URLSearchParams({
-      minLat: String(b.getSouth()), maxLat: String(b.getNorth()),
-      minLng: String(b.getWest()), maxLng: String(b.getEast()),
-      maxPrice: String(price),
-    })
-    categories.forEach((c) => p.append('category', c))
-    try {
-      const res = await fetch(`/api/stores?${p}`)
-      const d: { stores: Store[]; truncated: boolean; storesWithoutMenus: number } = await res.json()
-      setStores(d.stores ?? [])
-      setTruncated(d.truncated)
-      setEmptyAreaStores(d.storesWithoutMenus ?? 0)
-      setHasDemo((d.stores ?? []).some((s) => s.source === 'demo'))
-      setStaleBounds(null)
-    } finally {
-      setLoading(false)
-    }
-  }, [])
+  const fetchStores = useCallback(
+    async (area: Area, price: number, categories: string[]) => {
+      setLoading(true)
+      const p = new URLSearchParams({
+        centerLat: String(area.lat), centerLng: String(area.lng),
+        radiusM: String(Math.round(area.radiusM)),
+        maxPrice: String(price), zoom: String(area.zoom),
+      })
+      categories.forEach((c) => p.append('category', c))
+      try {
+        const res = await fetch(`/api/stores?${p}`)
+        const d: {
+          mode?: string; stores: Store[]; clusters?: Cluster[]
+          truncated: boolean; storesWithoutMenus: number
+        } = await res.json()
+        setStores(d.stores ?? [])
+        setClusters(d.clusters ?? [])
+        setTruncated(d.truncated)
+        setEmptyAreaStores(d.storesWithoutMenus ?? 0)
+        setHasDemo((d.stores ?? []).some((s) => s.source === 'demo'))
+        // 검색이 끝난 뒤에야 원을 그린다 — 아직 안 찾은 범위를 찾은 척하면 안 된다
+        setSearched(area)
+        setStale(null)
+      } finally {
+        setLoading(false)
+      }
+    },
+    []
+  )
 
   // 지도를 움직일 때마다 자동 재조회하면 화면이 계속 흔들리고 호출도 낭비된다.
   // 대신 "이 지역에서 다시 찾기" 버튼을 띄워 사용자가 원할 때만 조회한다.
   // 단 최초 1회는 사용자가 아무것도 안 했는데 화면이 비어 있으면 안 되므로 바로 조회한다.
   const loadedOnce = useRef(false)
-  const onMove = useCallback((b: LatLngBounds) => {
+  const onMove = useCallback((map: LeafletMap) => {
+    const c = map.getCenter()
+    const area: Area = { lat: c.lat, lng: c.lng, radiusM: visibleRadius(map), zoom: map.getZoom() }
+
     if (!loadedOnce.current) {
       loadedOnce.current = true
-      setBounds(b)
-      fetchStores(b, maxPrice, cats)
+      setArea(area)
+      fetchStores(area, maxPrice, cats)
       return
     }
-    setStaleBounds(b)
+
+    // 줌이 클러스터 경계를 넘나들면 화면이 통째로 바뀌어야 하므로 즉시 조회한다.
+    // "다시 찾기"를 기다리게 하면 개수 원과 가격 칩이 뒤섞여 보인다.
+    const wasCluster = zoomRef.current < CLUSTER_ZOOM
+    const isCluster = area.zoom < CLUSTER_ZOOM
+    zoomRef.current = area.zoom
+    if (wasCluster !== isCluster || isCluster) {
+      setArea(area)
+      fetchStores(area, maxPrice, cats)
+      return
+    }
+    setStale(area)
   }, [fetchStores, maxPrice, cats])
 
   // 필터가 바뀌면 현재 영역을 즉시 다시 조회한다.
   const applyFilters = (price: number, categories: string[]) => {
     setMaxPrice(price)
     setCats(categories)
-    if (bounds) fetchStores(bounds, price, categories)
+    if (area) fetchStores(area, price, categories)
   }
 
   const research = () => {
-    if (!staleBounds) return
-    const b = staleBounds
-    setBounds(b)
-    fetchStores(b, maxPrice, cats)
+    if (!stale) return
+    setArea(stale)
+    fetchStores(stale, maxPrice, cats)
     track('map_research')
   }
 
@@ -129,15 +167,27 @@ export default function Home() {
     setView(next)
   }
 
+  // 현재 위치. 사용자가 버튼을 누를 때만 1회 조회한다.
+  //
+  // watchPosition으로 실시간 추적하지 않는다. 위치를 지속 수집하면 위치정보법상
+  // 검토가 필요해지는데, 내 위치를 지도에서 확인하거나 도보 거리를 계산하는 데는
+  // 1회 조회로 충분하다. 브라우저 밖으로 위치를 보내지도 않는다 — 서버로 전송하지
+  // 않고, 길찾기도 목적지만 카카오맵에 넘긴다.
   const locate = () => {
-    navigator.geolocation?.getCurrentPosition(
+    if (!navigator.geolocation) return
+    setLocating(true)
+    navigator.geolocation.getCurrentPosition(
       (pos) => {
         const loc = { lat: pos.coords.latitude, lng: pos.coords.longitude }
         setUserLocation(loc)
         setFlyTo([loc.lat, loc.lng])
+        setLocating(false)
       },
-      () => alert('위치 권한이 필요해요'),
-      { enableHighAccuracy: true, timeout: 8000 }
+      () => {
+        setLocating(false)
+        alert('위치 권한이 필요해요')
+      },
+      { enableHighAccuracy: true, timeout: 8000, maximumAge: 30000 }
     )
   }
 
@@ -173,6 +223,15 @@ export default function Home() {
     )
   }, [stores, withDistance, userLocation])
 
+  // 재조회로 목록이 바뀌면 사라진 가게의 카드는 자동으로 닫힌다
+  const cardStore = useMemo(
+    () => stores.find((s) => s.id === cardStoreId) ?? null,
+    [stores, cardStoreId]
+  )
+
+  const isClustered = clusters.length > 0
+  const clusterTotal = useMemo(() => clusters.reduce((n, c) => n + c.count, 0), [clusters])
+
   const verify = async (menuId: string, kind: string) => {
     if (!userIdRef.current) return
     track('verify_click', { menuId, kind })
@@ -185,12 +244,15 @@ export default function Home() {
     if (res.ok) {
       setPoints(d.points)
       // 품절 제보 같은 건 목록에서 바로 빠져야 하므로 다시 조회한다
-      if (bounds) fetchStores(bounds, maxPrice, cats)
+      if (area) fetchStores(area, maxPrice, cats)
     } else {
       alert(d.error)
     }
   }
 
+  // 길찾기는 목적지만 넘기고 카카오맵에 맡긴다.
+  // 출발지 좌표를 우리가 넘길 이유가 없다 — 카카오맵이 알아서 사용자 위치를 잡고,
+  // 우리는 위치정보를 취급하지 않아도 된다.
   const directions = (lat: number, lng: number, name: string) => {
     track('directions_click', { name, view })
     window.open(`https://map.kakao.com/link/to/${encodeURIComponent(name)},${lat},${lng}`, '_blank')
@@ -198,44 +260,43 @@ export default function Home() {
 
   return (
     <main className="flex h-dvh flex-col bg-white dark:bg-neutral-950">
-      <header className="flex items-center justify-between border-b border-neutral-200 px-4 py-2.5 dark:border-neutral-800">
+      {/* 상단 크롬은 반투명 층이다. 불투명한 띠로 화면을 잘라먹지 않는다. */}
+      <header className="jm-chrome sticky top-0 z-20 flex items-center justify-between px-4 pb-2 pt-3">
         <div className="flex items-baseline gap-2">
-          <h1 className="text-lg font-bold tracking-tight text-neutral-900 dark:text-neutral-50">점심방어</h1>
-          <span className="text-xs text-neutral-500">만원 이하 점심 지도</span>
+          <h1 className="t-display text-[19px] font-bold text-[#1c1c1e] dark:text-[#f2f2f7]">점심방어</h1>
+          <span className="t-caption text-[11.5px] font-medium text-[#3c3c43]/55 dark:text-[#ebebf5]/55">
+            만원 이하 점심 지도
+          </span>
         </div>
-        <div className="flex items-center gap-2">
-          {points > 0 && (
-            <span className="rounded-full bg-orange-100 px-2.5 py-1 text-xs font-semibold text-orange-700 dark:bg-orange-950 dark:text-orange-300">
-              {points}P
-            </span>
-          )}
-          <button onClick={locate} className="rounded-lg border border-neutral-300 px-2.5 py-1 text-xs font-medium text-neutral-700 hover:bg-neutral-50 dark:border-neutral-700 dark:text-neutral-300 dark:hover:bg-neutral-800">
-            내 위치
-          </button>
-        </div>
+        {/* 현재 위치 버튼은 지도 우측 상단에 있다 */}
+        {points > 0 && (
+          <span className="t-price rounded-full bg-[#ff7a18]/12 px-2.5 py-1 text-[12px] font-semibold text-[#ff7a18]">
+            {points}P
+          </span>
+        )}
       </header>
 
       {hasDemo && (
-        <div className="bg-amber-50 px-4 py-1.5 text-center text-[11px] text-amber-800 dark:bg-amber-950/50 dark:text-amber-200">
+        <div className="t-caption bg-[#ff9f0a]/10 px-4 py-1.5 text-center text-[11px] font-medium text-[#b25000] dark:text-[#ffb340]">
           데모 데이터입니다 — 실제 가게·가격이 아닙니다
         </div>
       )}
 
-      <div className="flex gap-1.5 overflow-x-auto border-b border-neutral-200 px-4 py-2 dark:border-neutral-800">
+      <div className="jm-chrome jm-scroll flex gap-1.5 overflow-x-auto px-4 pb-2.5 pt-0.5">
         {PRICE_STEPS.map((p) => (
           <button
             key={p}
             onClick={() => { applyFilters(p, cats); track('filter_change', { type: 'price', value: p }) }}
-            className={`shrink-0 rounded-full px-3 py-1 text-xs font-medium transition ${
+            className={`jm-chip t-caption shrink-0 rounded-full px-3 py-1.5 text-[12px] font-semibold ${
               maxPrice === p
-                ? 'bg-neutral-900 text-white dark:bg-white dark:text-neutral-900'
-                : 'bg-neutral-100 text-neutral-600 hover:bg-neutral-200 dark:bg-neutral-800 dark:text-neutral-400'
+                ? 'bg-[#1c1c1e] text-white dark:bg-white dark:text-[#1c1c1e]'
+                : 'bg-black/[0.05] text-[#3c3c43]/70 dark:bg-white/[0.09] dark:text-[#ebebf5]/70'
             }`}
           >
             {(p / 1000).toLocaleString()}천원 이하
           </button>
         ))}
-        <div className="mx-1 w-px shrink-0 bg-neutral-200 dark:bg-neutral-700" />
+        <div className="mx-1 my-1 w-px shrink-0 bg-[#3c3c43]/12 dark:bg-[#545458]/50" />
         {CATEGORY_FILTERS.map(({ label }) => (
           <button
             key={label}
@@ -244,10 +305,10 @@ export default function Home() {
               applyFilters(maxPrice, next)
               track('filter_change', { type: 'category', value: next })
             }}
-            className={`shrink-0 rounded-full px-3 py-1 text-xs font-medium transition ${
+            className={`jm-chip t-caption shrink-0 rounded-full px-3 py-1.5 text-[12px] font-semibold ${
               cats.includes(label)
-                ? 'bg-neutral-900 text-white dark:bg-white dark:text-neutral-900'
-                : 'bg-neutral-100 text-neutral-600 hover:bg-neutral-200 dark:bg-neutral-800 dark:text-neutral-400'
+                ? 'bg-[#1c1c1e] text-white dark:bg-white dark:text-[#1c1c1e]'
+                : 'bg-black/[0.05] text-[#3c3c43]/70 dark:bg-white/[0.09] dark:text-[#ebebf5]/70'
             }`}
           >
             {label}
@@ -258,49 +319,89 @@ export default function Home() {
       <div className="relative h-[45vh] shrink-0">
         <MapView
           stores={stores}
+          clusters={clusters}
           selectedId={selectedId}
           onSelect={(id) => {
             setSelectedId(id)
+            setCardStoreId(id)
             const s = stores.find((x) => x.id === id)
             track('marker_click', { id, name: s?.name, view })
           }}
           onMove={onMove}
           userLocation={userLocation}
           flyTo={flyTo}
+          onLocate={locate}
+          locating={locating}
+          searchedRadius={searched?.radiusM ?? 0}
+          searchedCenter={searched ? [searched.lat, searched.lng] : null}
         />
-        {staleBounds && (
+        {stale && !cardStore && (
           <button
             onClick={research}
-            className="absolute left-1/2 top-3 z-[1000] -translate-x-1/2 rounded-full bg-neutral-900 px-4 py-2 text-xs font-semibold text-white shadow-lg dark:bg-white dark:text-neutral-900"
+            className="jm-press jm-card t-caption absolute left-1/2 top-3 z-[1000] -translate-x-1/2 rounded-full px-4 py-2 text-[12px] font-semibold text-[#1c1c1e] dark:text-[#f2f2f7]"
           >
             이 지역에서 다시 찾기
           </button>
         )}
+
+        {/* 원이 몇 미터인지 말해주지 않으면 장식일 뿐이다 */}
+        {searched && !cardStore && !isClustered && (
+          <span className="jm-card t-caption pointer-events-none absolute bottom-2.5 left-2.5 z-[900] rounded-full px-2.5 py-1 text-[10.5px] font-medium text-[#3c3c43]/70 dark:text-[#ebebf5]/70">
+            {radiusLabel(searched.radiusM)}
+          </span>
+        )}
+
+        {/* 마커를 누르면 그 가게를 묶어 지도 위에 띄운다 */}
+        {cardStore && (
+          <StoreCard
+            store={cardStore}
+            distance={withDistance(cardStore.lat, cardStore.lng)}
+            onClose={() => setCardStoreId(null)}
+            onDirections={() => directions(cardStore.lat, cardStore.lng, cardStore.name)}
+            onMenuClick={(menuId) => {
+              const m = cardStore.menus.find((x) => x.id === menuId)
+              track('menu_card_click', { id: menuId, name: m?.name, price: m?.price, from: 'map_card' })
+            }}
+          />
+        )}
       </div>
 
-      <div className="flex items-center justify-between border-b border-neutral-200 px-4 py-2 dark:border-neutral-800">
-        <div className="flex rounded-lg bg-neutral-100 p-0.5 dark:bg-neutral-800">
-          {(['store', 'menu'] as const).map((m) => (
-            <button
-              key={m}
-              onClick={() => switchView(m)}
-              className={`rounded-md px-3 py-1 text-xs font-semibold transition ${
-                view === m
-                  ? 'bg-white text-neutral-900 shadow-sm dark:bg-neutral-700 dark:text-white'
-                  : 'text-neutral-500'
-              }`}
-            >
-              {m === 'store' ? '식당으로 보기' : '메뉴로 보기'}
-            </button>
-          ))}
-        </div>
-        <span className="text-xs text-neutral-500">
-          {loading ? '찾는 중…' : view === 'store' ? `식당 ${storeRows.length}곳` : `메뉴 ${menuRows.length}개`}
+      <div className="jm-chrome flex items-center justify-between px-4 py-2">
+        <Segmented
+          value={view}
+          onChange={switchView}
+          options={[
+            { value: 'store', label: '식당으로 보기' },
+            { value: 'menu', label: '메뉴로 보기' },
+          ]}
+        />
+        <span className="t-caption text-[11.5px] font-medium text-[#3c3c43]/55 dark:text-[#ebebf5]/55">
+          {loading
+            ? '찾는 중…'
+            : isClustered
+              ? `${clusterTotal.toLocaleString()}곳`
+              : view === 'store'
+                ? `식당 ${storeRows.length}곳`
+                : `메뉴 ${menuRows.length}개`}
         </span>
       </div>
 
       <div className="flex-1 overflow-y-auto overscroll-contain">
-        {!loading && stores.length === 0 && (
+        {/* 클러스터 상태에서는 목록을 채우지 않는다. 화면에 수백 곳이 걸려 있는데
+            그걸 다 나열해봐야 고를 수가 없다. 먼저 지역을 좁히라고 말해준다. */}
+        {isClustered && !loading && (
+          <div className="p-10 text-center">
+            <p className="t-body text-[14px] font-medium text-[#1c1c1e] dark:text-[#f2f2f7]">
+              지도를 확대하면 메뉴와 가격이 보여요
+            </p>
+            <p className="t-caption mt-1 text-[12px] font-medium text-[#3c3c43]/55 dark:text-[#ebebf5]/55">
+              동그라미를 누르면 그 동네로 들어가요
+              {clusterTotal > 0 && ` · 이 화면에 ${clusterTotal.toLocaleString()}곳`}
+            </p>
+          </div>
+        )}
+
+        {!isClustered && !loading && stores.length === 0 && (
           <div className="p-10 text-center">
             {emptyAreaStores > 0 ? (
               <>
@@ -334,34 +435,41 @@ export default function Home() {
                 key={s.id}
                 onClick={() => {
                   setSelectedId(s.id)
+                  setCardStoreId(s.id)
                   setFlyTo([s.lat, s.lng])
                   track('store_card_click', { id: s.id, name: s.name })
                 }}
-                className={`w-full cursor-pointer border-b border-neutral-100 px-4 py-3 text-left transition dark:border-neutral-800 ${
-                  selectedId === s.id ? 'bg-orange-50 dark:bg-orange-950/30' : 'hover:bg-neutral-50 dark:hover:bg-neutral-900'
+                className={`w-full cursor-pointer px-4 py-3 text-left transition-colors ${
+                  selectedId === s.id ? 'bg-[#ff7a18]/[0.07]' : 'hover:bg-black/[0.02] dark:hover:bg-white/[0.03]'
                 }`}
               >
                 <div className="flex items-baseline justify-between gap-2">
-                  <span className="truncate font-semibold text-neutral-900 dark:text-neutral-50">{s.name}</span>
-                  <span className="shrink-0 text-xs text-neutral-500">
+                  <span className="t-title truncate text-[15px] font-semibold text-[#1c1c1e] dark:text-[#f2f2f7]">
+                    {s.name}
+                  </span>
+                  <span className="t-caption shrink-0 text-[11.5px] font-medium text-[#3c3c43]/55 dark:text-[#ebebf5]/55">
                     {s.category}
                     {s.distance !== null && ` · 도보 ${walkMinutes(s.distance)}분`}
                   </span>
                 </div>
-                <p className="mt-1 text-xs text-neutral-500">
-                  {maxPrice.toLocaleString()}원 이하 메뉴 {s.menus.length}개 · 최저 {s.cheapest.toLocaleString()}원
+                <p className="t-caption mt-0.5 text-[11.5px] font-medium text-[#3c3c43]/55 dark:text-[#ebebf5]/55">
+                  {maxPrice.toLocaleString()}원 이하 {s.menus.length}개 · 최저{' '}
+                  <span className="t-price font-semibold text-[#1c1c1e] dark:text-[#f2f2f7]">
+                    {s.cheapest.toLocaleString()}원
+                  </span>
                 </p>
-                <div className="mt-1.5 flex flex-wrap gap-1">
+                <div className="mt-2 flex flex-wrap items-center gap-1.5">
                   {s.menus.slice(0, 3).map((m) => (
-                    <span key={m.id} className="rounded bg-neutral-100 px-1.5 py-0.5 text-[11px] text-neutral-600 dark:bg-neutral-800 dark:text-neutral-400">
-                      {m.name} {m.price.toLocaleString()}
+                    <span
+                      key={m.id}
+                      className="t-caption rounded-full bg-black/[0.04] px-2 py-1 text-[11px] font-medium text-[#3c3c43]/70 dark:bg-white/[0.07] dark:text-[#ebebf5]/70"
+                    >
+                      {m.name} <span className="t-price">{m.price.toLocaleString()}</span>
                     </span>
                   ))}
-                </div>
-                <div className="mt-2">
                   <button
                     onClick={(e) => { e.stopPropagation(); directions(s.lat, s.lng, s.name) }}
-                    className="rounded border border-neutral-300 px-2 py-0.5 text-[11px] text-neutral-600 hover:bg-neutral-100 dark:border-neutral-700 dark:text-neutral-400"
+                    className="jm-press t-caption ml-auto rounded-full bg-black/[0.05] px-2.5 py-1 text-[11px] font-medium text-[#3c3c43]/65 dark:bg-white/[0.09] dark:text-[#ebebf5]/65"
                   >
                     길찾기
                   </button>
@@ -371,41 +479,53 @@ export default function Home() {
           : menuRows.map((m) => (
               <div
                 key={m.id}
-                className={`border-b border-neutral-100 px-4 py-3 dark:border-neutral-800 ${
-                  selectedId === m.storeId ? 'bg-orange-50 dark:bg-orange-950/30' : ''
+                className={`px-4 py-2.5 transition-colors ${
+                  selectedId === m.storeId ? 'bg-[#ff7a18]/[0.07]' : ''
                 }`}
               >
                 <button
                   onClick={() => {
                     setSelectedId(m.storeId)
+                    setCardStoreId(m.storeId)
                     setFlyTo([m.lat, m.lng])
                     track('menu_card_click', { id: m.id, name: m.name, price: m.price })
                   }}
-                  className="block w-full text-left"
+                  className="flex w-full items-center gap-3 text-left"
                 >
-                  <div className="flex items-baseline justify-between gap-2">
-                    <span className="truncate font-semibold text-neutral-900 dark:text-neutral-50">{m.name}</span>
-                    <span className="shrink-0 font-bold text-orange-600 dark:text-orange-400">
-                      {m.price.toLocaleString()}원
+                  {m.image_url ? (
+                    // eslint-disable-next-line @next/next/no-img-element
+                    <img src={m.image_url} alt="" loading="lazy" className="size-11 shrink-0 rounded-full object-cover" />
+                  ) : (
+                    <span className="flex size-11 shrink-0 items-center justify-center rounded-full bg-black/[0.04] dark:bg-white/[0.07]" aria-hidden>
+                      <svg viewBox="0 0 24 24" className="size-3.5 text-black/20 dark:text-white/25" fill="none" stroke="currentColor" strokeWidth="2.4" strokeLinecap="round">
+                        <path d="M7 7l10 10M17 7L7 17" />
+                      </svg>
                     </span>
-                  </div>
-                  <p className="mt-0.5 truncate text-xs text-neutral-500">
-                    {m.storeName}
-                    {m.distance !== null && ` · 도보 ${walkMinutes(m.distance)}분`}
-                  </p>
-                  <p className="mt-0.5 text-[11px] text-neutral-400">가격 확인 {daysAgo(m.verified_at)}</p>
+                  )}
+                  <span className="min-w-0 flex-1">
+                    <span className="t-body block truncate text-[14.5px] font-medium text-[#1c1c1e] dark:text-[#f2f2f7]">
+                      {m.name}
+                    </span>
+                    <span className="t-caption block truncate text-[11.5px] font-medium text-[#3c3c43]/55 dark:text-[#ebebf5]/55">
+                      {m.storeName}
+                      {m.distance !== null && ` · 도보 ${walkMinutes(m.distance)}분`}
+                      {` · 확인 ${daysAgo(m.verified_at)}`}
+                    </span>
+                  </span>
+                  <span className="t-price shrink-0 text-[16px] font-semibold text-[#1c1c1e] dark:text-[#f2f2f7]">
+                    {m.price.toLocaleString()}
+                    <span className="ml-0.5 text-[11px] font-medium text-[#3c3c43]/50 dark:text-[#ebebf5]/50">원</span>
+                  </span>
                 </button>
-                {/* 검증 버튼. 이 서비스의 생사는 가격이 맞는지에 달렸으므로
-                    사용자가 한 번의 탭으로 확인해줄 수 있어야 한다. */}
-                <div className="mt-2 flex gap-1.5">
-                  <button onClick={() => verify(m.id, 'price_ok')} className="rounded border border-neutral-300 px-2 py-0.5 text-[11px] text-neutral-600 hover:bg-neutral-100 dark:border-neutral-700 dark:text-neutral-400">
-                    가격 맞아요 +5P
+
+                {/* 검증. 이 서비스의 생사는 가격이 맞는지에 달렸으므로 한 번의 탭으로
+                    확인해줄 수 있어야 한다. 다만 목록을 시끄럽게 만들면 안 되므로 작게 둔다. */}
+                <div className="mt-1.5 flex gap-1.5 pl-14">
+                  <button onClick={() => verify(m.id, 'price_ok')} className="jm-press t-caption rounded-full bg-black/[0.05] px-2.5 py-1 text-[11px] font-medium text-[#3c3c43]/65 dark:bg-white/[0.09] dark:text-[#ebebf5]/65">
+                    가격 맞아요 · +5P
                   </button>
-                  <button onClick={() => verify(m.id, 'sold_out')} className="rounded border border-neutral-300 px-2 py-0.5 text-[11px] text-neutral-600 hover:bg-neutral-100 dark:border-neutral-700 dark:text-neutral-400">
-                    지금 안 팔아요 +20P
-                  </button>
-                  <button onClick={() => directions(m.lat, m.lng, m.storeName)} className="ml-auto rounded border border-neutral-300 px-2 py-0.5 text-[11px] text-neutral-600 hover:bg-neutral-100 dark:border-neutral-700 dark:text-neutral-400">
-                    길찾기
+                  <button onClick={() => verify(m.id, 'sold_out')} className="jm-press t-caption rounded-full bg-black/[0.05] px-2.5 py-1 text-[11px] font-medium text-[#3c3c43]/65 dark:bg-white/[0.09] dark:text-[#ebebf5]/65">
+                    안 팔아요 · +20P
                   </button>
                 </div>
               </div>

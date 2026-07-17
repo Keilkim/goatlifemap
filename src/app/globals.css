@@ -1,8 +1,12 @@
 @import "tailwindcss";
 
 :root {
+  /* 애플의 시스템 그레이 계열. 순백/순검 대신 약간 눌러 눈이 편하게 한다. */
   --background: #ffffff;
-  --foreground: #171717;
+  --foreground: #1c1c1e;
+  --surface: rgb(255 255 255 / 0.72);
+  --separator: rgb(60 60 67 / 0.12);
+  --accent: #ff7a18;
 }
 
 @theme inline {
@@ -14,71 +18,333 @@
 
 @media (prefers-color-scheme: dark) {
   :root {
-    --background: #0a0a0a;
-    --foreground: #ededed;
+    --background: #000000;
+    --foreground: #f2f2f7;
+    --surface: rgb(28 28 30 / 0.72);
+    --separator: rgb(84 84 88 / 0.4);
   }
 }
 
 body {
   background: var(--background);
   color: var(--foreground);
-  font-family: var(--font-geist-sans), -apple-system, "Apple SD Gothic Neo", "Malgun Gothic", sans-serif;
+  /* 플랫폼 시스템 폰트를 먼저 쓴다 — 광학 사이징과 자간 테이블이 이미 들어있다.
+     한글 시스템 폰트는 Apple SD Gothic Neo다. */
+  font-family:
+    -apple-system, BlinkMacSystemFont, "SF Pro Text",
+    "Apple SD Gothic Neo", "Pretendard Variable", Pretendard,
+    var(--font-geist-sans), "Malgun Gothic", system-ui, sans-serif;
+  -webkit-font-smoothing: antialiased;
+  text-rendering: optimizeLegibility;
+}
+
+/* 자간은 크기별로 다르다. 하나의 값을 전부에 쓰면 어딘가는 반드시 틀린다.
+   큰 글자는 좁히고(자라면서 letters가 벌어져 보인다), 작은 글자는 살짝 벌린다. */
+.t-display {
+  letter-spacing: -0.022em;
+  line-height: 1.1;
+}
+.t-title {
+  letter-spacing: -0.015em;
+  line-height: 1.25;
+}
+.t-body {
+  letter-spacing: -0.004em;
+  line-height: 1.45;
+}
+.t-caption {
+  letter-spacing: 0.005em;
+  line-height: 1.35;
+}
+/* 가격은 숫자가 흔들리면 안 된다 */
+.t-price {
+  font-variant-numeric: tabular-nums;
+  letter-spacing: -0.01em;
 }
 
 /* 가격 마커.
    기존 지도처럼 식당명만 띄우지 않고 최저가를 마커에 직접 얹는다.
-   "지금 이 동네에서 얼마로 먹을 수 있나"가 한눈에 보여야 하기 때문이다. */
+   "지금 이 동네에서 얼마로 먹을 수 있나"가 한눈에 보여야 하기 때문이다.
+
+   재질: 지도 위에 뜨는 칩이므로 불투명 흰 덩어리가 아니라 빛을 받는 유리처럼 만든다.
+   작은 표면이라 블러는 약하게, 그림자도 얕게 — 큰 표면일수록 두껍게 읽혀야 한다. */
 .jm-marker {
   display: flex;
   align-items: center;
-  gap: 3px;
-  padding: 3px 7px;
+  gap: 4px;
+  padding: 4px 9px;
   border-radius: 999px;
-  background: #fff;
-  border: 1.5px solid #d4d4d4;
-  box-shadow: 0 1px 4px rgb(0 0 0 / 0.2);
-  font-size: 11px;
-  font-weight: 700;
-  color: #171717;
+  background: rgb(255 255 255 / 0.82);
+  backdrop-filter: blur(12px) saturate(180%);
+  -webkit-backdrop-filter: blur(12px) saturate(180%);
+  /* 위쪽 밝은 테두리 = 재질이 빛을 받는 느낌 */
+  border: 0.5px solid rgb(255 255 255 / 0.7);
+  box-shadow:
+    0 1px 2px rgb(0 0 0 / 0.12),
+    0 4px 12px rgb(0 0 0 / 0.08);
+  font-size: 12px;
+  font-weight: 600;
+  /* 작은 텍스트는 자간을 살짝 벌려야 읽힌다 */
+  letter-spacing: 0.01em;
+  font-variant-numeric: tabular-nums;
+  color: #1c1c1e;
   white-space: nowrap;
-  transform: translateZ(0);
+  cursor: pointer;
+  /* 스프링처럼 읽히도록 살짝 오버슈트하는 커브. 마커는 제스처로 잡는 대상이 아니라
+     탭 대상이므로 CSS transition으로 충분하다. */
+  transition:
+    transform 0.32s cubic-bezier(0.34, 1.4, 0.64, 1),
+    background-color 0.2s ease-out,
+    box-shadow 0.32s cubic-bezier(0.34, 1.4, 0.64, 1);
+  will-change: transform;
 }
+
+/* 반응은 누르는 순간에. 떼는 순간까지 기다리면 죽은 것처럼 느껴진다. */
+.jm-marker:active {
+  transform: scale(0.94);
+  transition-duration: 0.1s;
+}
+
 .jm-marker--on {
-  background: #ea580c;
-  border-color: #ea580c;
+  background: rgb(255 122 24 / 0.94);
+  border-color: rgb(255 255 255 / 0.35);
   color: #fff;
+  /* 선택된 마커는 손가락 쪽으로 자라난다 — 다음에 뭐가 열릴지 예고한다 */
+  transform: scale(1.14);
+  box-shadow:
+    0 2px 6px rgb(234 88 12 / 0.3),
+    0 8px 20px rgb(234 88 12 / 0.22);
   z-index: 1000;
 }
+.jm-marker--on:active {
+  transform: scale(1.06);
+}
+
 .jm-marker__count {
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  min-width: 14px;
-  height: 14px;
-  padding: 0 3px;
+  min-width: 15px;
+  height: 15px;
+  padding: 0 4px;
   border-radius: 999px;
-  background: #f5f5f5;
-  color: #737373;
-  font-size: 9px;
+  background: rgb(0 0 0 / 0.06);
+  color: #6c6c70;
+  font-size: 10px;
+  font-weight: 600;
 }
 .jm-marker--on .jm-marker__count {
-  background: rgb(255 255 255 / 0.25);
+  background: rgb(255 255 255 / 0.28);
   color: #fff;
 }
 
 @media (prefers-color-scheme: dark) {
   .jm-marker {
-    background: #262626;
-    border-color: #404040;
-    color: #fafafa;
+    background: rgb(28 28 30 / 0.78);
+    border-color: rgb(255 255 255 / 0.14);
+    color: #f2f2f7;
+    box-shadow:
+      0 1px 2px rgb(0 0 0 / 0.4),
+      0 4px 12px rgb(0 0 0 / 0.3);
   }
   .jm-marker__count {
-    background: #404040;
-    color: #a3a3a3;
+    background: rgb(255 255 255 / 0.12);
+    color: #aeaeb2;
   }
+}
+
+/* 투명도를 줄이라는 설정이면 재질을 불투명하게 — 블러를 걷고 배경을 채운다 */
+@media (prefers-reduced-transparency: reduce) {
+  .jm-marker {
+    background: #fff;
+    backdrop-filter: none;
+    -webkit-backdrop-filter: none;
+    border-color: #d4d4d4;
+  }
+  @media (prefers-color-scheme: dark) {
+    .jm-marker { background: #1c1c1e; }
+  }
+}
+
+/* 모션을 줄이라는 설정이면 스케일 변화를 없애고 색만 바꾼다 */
+@media (prefers-reduced-motion: reduce) {
+  .jm-marker,
+  .jm-marker--on,
+  .jm-marker:active {
+    transition: background-color 0.2s ease, color 0.2s ease;
+    transform: none;
+  }
+}
+
+/* 반투명 크롬 — 상단 바, 필터 바.
+   불투명한 띠로 화면을 잘라먹는 대신 재질 층으로 띄우고 콘텐츠가 밑으로 흐르게 한다. */
+.jm-chrome {
+  background: rgb(255 255 255 / 0.72);
+  backdrop-filter: blur(20px) saturate(180%);
+  -webkit-backdrop-filter: blur(20px) saturate(180%);
+}
+@media (prefers-color-scheme: dark) {
+  .jm-chrome { background: rgb(0 0 0 / 0.68); }
+}
+@media (prefers-reduced-transparency: reduce) {
+  .jm-chrome {
+    background: #fff;
+    backdrop-filter: none;
+    -webkit-backdrop-filter: none;
+  }
+  @media (prefers-color-scheme: dark) {
+    .jm-chrome { background: #000; }
+  }
+}
+
+/* iOS 세그먼티드 컨트롤.
+   선택된 알약이 스프링으로 미끄러지는 게 핵심이다 — 색만 바뀌면 애플처럼 안 읽힌다. */
+.jm-segment {
+  position: relative;
+  display: flex;
+  padding: 2px;
+  border-radius: 9px;
+  background: rgb(120 120 128 / 0.12);
+}
+.jm-segment__thumb {
+  position: absolute;
+  top: 2px;
+  bottom: 2px;
+  border-radius: 7px;
+  background: #fff;
+  box-shadow:
+    0 3px 8px rgb(0 0 0 / 0.12),
+    0 1px 1px rgb(0 0 0 / 0.04);
+  transition: transform 0.36s cubic-bezier(0.32, 1.28, 0.5, 1), width 0.36s cubic-bezier(0.32, 1.28, 0.5, 1);
+  will-change: transform;
+}
+@media (prefers-color-scheme: dark) {
+  .jm-segment { background: rgb(120 120 128 / 0.24); }
+  .jm-segment__thumb { background: #636366; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .jm-segment__thumb { transition: none; }
+}
+
+/* 필터 칩 */
+.jm-chip {
+  transition:
+    transform 0.28s cubic-bezier(0.34, 1.4, 0.64, 1),
+    background-color 0.18s ease-out,
+    color 0.18s ease-out;
+}
+.jm-chip:active {
+  transform: scale(0.94);
+  transition-duration: 0.09s;
+}
+@media (prefers-reduced-motion: reduce) {
+  .jm-chip:active { transform: none; }
+}
+
+/* 클러스터 원.
+   줌아웃 상태에서 가격은 못 읽으므로 개수만 말한다.
+   가격 마커와 같은 재질 언어를 쓰되 색을 채워 "여기 뭉쳐 있다"를 먼저 보이게 한다. */
+.jm-cluster {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 999px;
+  background: rgb(255 122 24 / 0.9);
+  backdrop-filter: blur(8px);
+  -webkit-backdrop-filter: blur(8px);
+  border: 2px solid rgb(255 255 255 / 0.65);
+  box-shadow:
+    0 2px 6px rgb(234 88 12 / 0.28),
+    0 8px 20px rgb(234 88 12 / 0.2);
+  color: #fff;
+  font-size: 13px;
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+  letter-spacing: -0.01em;
+  cursor: pointer;
+  transition: transform 0.32s cubic-bezier(0.34, 1.4, 0.64, 1);
+  will-change: transform;
+}
+.jm-cluster:active {
+  transform: scale(0.9);
+  transition-duration: 0.09s;
+}
+@media (prefers-reduced-transparency: reduce) {
+  .jm-cluster {
+    background: #ff7a18;
+    backdrop-filter: none;
+    -webkit-backdrop-filter: none;
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .jm-cluster:active { transform: none; }
+}
+
+/* 플로팅 카드.
+   마커보다 큰 표면이므로 더 두껍게 읽혀야 한다 — 블러도 그림자도 강하게.
+   지도 위에 떠 있지만 흐름을 막는 모달이 아니므로 배경을 어둡게 덮지 않는다. */
+.jm-card {
+  background: rgb(255 255 255 / 0.74);
+  backdrop-filter: blur(28px) saturate(180%);
+  -webkit-backdrop-filter: blur(28px) saturate(180%);
+  border: 0.5px solid rgb(255 255 255 / 0.6);
+  box-shadow:
+    0 0 0 0.5px rgb(0 0 0 / 0.04),
+    0 8px 24px rgb(0 0 0 / 0.12),
+    0 24px 48px rgb(0 0 0 / 0.14);
+}
+@media (prefers-color-scheme: dark) {
+  .jm-card {
+    background: rgb(28 28 30 / 0.72);
+    border-color: rgb(255 255 255 / 0.12);
+    box-shadow:
+      0 0 0 0.5px rgb(255 255 255 / 0.06),
+      0 8px 24px rgb(0 0 0 / 0.5),
+      0 24px 48px rgb(0 0 0 / 0.4);
+  }
+}
+@media (prefers-reduced-transparency: reduce) {
+  .jm-card {
+    background: #fff;
+    backdrop-filter: none;
+    -webkit-backdrop-filter: none;
+  }
+  @media (prefers-color-scheme: dark) {
+    .jm-card { background: #1c1c1e; }
+  }
+}
+
+/* 누르는 순간 반응한다. 떼기를 기다리면 죽은 것처럼 느껴진다. */
+.jm-press {
+  transition: transform 0.28s cubic-bezier(0.34, 1.4, 0.64, 1), opacity 0.15s ease-out;
+}
+.jm-press:active {
+  transform: scale(0.92);
+  opacity: 0.75;
+  transition-duration: 0.09s;
+}
+@media (prefers-reduced-motion: reduce) {
+  .jm-press:active { transform: none; }
+}
+
+/* 스크롤바는 재질 위에서 시끄럽다 */
+.jm-scroll {
+  scrollbar-width: none;
+}
+.jm-scroll::-webkit-scrollbar {
+  display: none;
 }
 
 /* Leaflet 기본 attribution이 너무 크다 */
 .leaflet-control-attribution {
   font-size: 9px;
+  background: rgb(255 255 255 / 0.6) !important;
+  backdrop-filter: blur(8px);
+}
+@media (prefers-color-scheme: dark) {
+  .leaflet-control-attribution {
+    background: rgb(0 0 0 / 0.4) !important;
+  }
+  .leaflet-control-attribution,
+  .leaflet-control-attribution a { color: #aeaeb2 !important; }
 }
