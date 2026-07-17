@@ -4,6 +4,7 @@ import { useReducer } from 'react'
 import { useMap, useMapEvents } from 'react-leaflet'
 import type { Store, ViewMode } from '@/lib/types'
 import { placeLabels, leaderStart, type Box } from '@/lib/labels'
+import Rating from './Rating'
 
 // 지도 위 라벨.
 //
@@ -94,7 +95,9 @@ export default function MenuLabels({
       {placements.map(({ item, anchor }) => (
         <button
           key={`dot-${item.id}`}
-          className={`jm-dot absolute z-[450] ${item.id === selectedStoreId ? 'jm-dot--on' : ''}`}
+          // 선택된 가게는 시트 스크림(z 1190) 위로 올린다. 그래야 아래 시트가
+          // 어느 가게 얘기인지 눈으로 이을 수 있다 — 다 같이 어두워지면 알 수 없다.
+          className={`jm-dot absolute ${item.id === selectedStoreId ? 'jm-dot--on z-[1195]' : 'z-[450]'}`}
           style={{ left: anchor.x, top: anchor.y, transform: 'translate(-50%, -50%)' }}
           onClick={(e) => { e.stopPropagation(); onStoreTap(item) }}
           aria-label={item.name}
@@ -108,7 +111,11 @@ export default function MenuLabels({
       {placements.map(({ item, box }) => box && (
         <div
           key={`box-${item.id}`}
-          className="absolute z-[500]"
+          className={`absolute ${
+            item.id === selectedStoreId || item.menus.some((m) => m.id === selectedMenuId)
+              ? 'z-[1195]'
+              : 'z-[500]'
+          }`}
           style={{ left: box.x, top: box.y, width: box.w }}
         >
           {view === 'store' ? (
@@ -140,7 +147,10 @@ export default function MenuLabels({
                     </span>
                   )}
                   <span className="jm-row__text">
-                    <span className="jm-row__name">{m.name}</span>
+                    <span className="jm-row__head">
+                      <span className="jm-row__name">{m.name}</span>
+                      <Rating value={m.rating} count={m.rating_count} />
+                    </span>
                     <span className="jm-row__price">
                       {m.price.toLocaleString()}<i>원</i>
                     </span>

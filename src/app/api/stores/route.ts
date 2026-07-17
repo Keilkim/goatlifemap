@@ -98,7 +98,11 @@ export async function GET(req: NextRequest) {
     {
       id: string; name: string; category: string | null; road_address: string | null
       lat: number; lng: number; source: string; distance_m: number
-      menus: { id: string; name: string; price: number; is_available: boolean; verified_at: string }[]
+      menus: {
+        id: string; name: string; price: number; is_available: boolean
+        verified_at: string; image_url: string | null
+        rating: number | null; rating_count: number
+      }[]
       cheapest: number
     }[]
   >`
@@ -110,11 +114,17 @@ export async function GET(req: NextRequest) {
         json_build_object(
           'id', m.id, 'name', m.name, 'price', m.price,
           'is_available', m.is_available, 'verified_at', m.verified_at,
-          'image_url', m.image_url
+          'image_url', m.image_url,
+          'rating', r.avg_rating, 'rating_count', r.n
         ) order by m.price
       ) as menus
     from stores s
     join menus m on m.store_id = s.id
+    -- 평점은 메뉴 단위다. 같은 집이라도 김치찌개는 훌륭하고 돈까스는 별로일 수 있다.
+    left join lateral (
+      select round(avg(rating)::numeric, 1)::float as avg_rating, count(*)::int as n
+      from menu_reviews mr where mr.menu_id = m.id and mr.rating is not null
+    ) r on true
     where ${withinRadius(args)}
     group by s.id
     order by min(m.price)

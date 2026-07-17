@@ -45,19 +45,30 @@ export async function GET(req: NextRequest) {
 }
 
 export async function POST(req: NextRequest) {
-  let body: { userId?: string; menuId?: string; tags?: string[]; comment?: string }
+  let body: { userId?: string; menuId?: string; tags?: string[]; comment?: string; rating?: number | null }
   try {
     body = await req.json()
   } catch {
     return NextResponse.json({ error: 'invalid json' }, { status: 400 })
   }
 
-  const { userId, menuId, tags, comment } = body
+  const { userId, menuId, tags, comment, rating } = body
   if (!isValidUserId(userId)) return NextResponse.json({ error: 'invalid userId' }, { status: 400 })
   if (!isValidUserId(menuId)) return NextResponse.json({ error: 'invalid menuId' }, { status: 400 })
 
   const clean = (tags ?? []).filter((t) => ALLOWED_TAGS.has(t))
-  if (!clean.length) return NextResponse.json({ error: '하나 이상 골라주세요' }, { status: 400 })
+  // 별점만 남겨도 되고 태그만 남겨도 된다. 둘 다 없으면 남길 게 없다.
+  //
+  // 3.7 같은 값을 반올림해서 받지 않는다. 별은 다섯 개고 사용자가 고를 수 있는 건
+  // 정수뿐인데, 소수점이 들어왔다는 건 클라이언트가 우리가 모르는 짓을 했다는 뜻이다.
+  // 조용히 4로 바꾸면 사용자가 매기지 않은 점수가 평균에 섞인다.
+  const stars = rating ?? null
+  if (stars !== null && (!Number.isInteger(stars) || stars < 1 || stars > 5)) {
+    return NextResponse.json({ error: '별점은 1~5 정수입니다' }, { status: 400 })
+  }
+  if (!clean.length && stars === null) {
+    return NextResponse.json({ error: '별점이나 태그를 하나 이상 남겨주세요' }, { status: 400 })
+  }
 
   const text = comment?.trim() || null
   if (text && text.length > 200) {
@@ -71,9 +82,9 @@ export async function POST(req: NextRequest) {
       const [review] = await tx<
         { id: string; tags: string[]; comment: string | null; image_url: string | null; created_at: string }[]
       >`
-        insert into menu_reviews (menu_id, user_id, tags, comment)
-        values (${menuId}, ${userId}, ${clean}, ${text})
-        returning id, tags, comment, image_url, created_at
+        insert into menu_reviews (menu_id, user_id, tags, comment, rating)
+        values (${menuId}, ${userId}, ${clean}, ${text}, ${stars})
+        returning id, tags, comment, image_url, created_at, rating
       `
       const [u] = await tx<{ points: number }[]>`
         update app_users set points = points + ${REVIEW_POINTS}

@@ -2,6 +2,7 @@
 
 import type { Store, Menu } from '@/lib/types'
 import { daysAgo } from '@/lib/format'
+import Rating from './Rating'
 
 /** 사진이 없는 게 기본이다. 사진까지 요구하면 메뉴 입력이 급격히 느려진다. */
 function NoImage({ size = 'size-11' }: { size?: string }) {
@@ -54,8 +55,11 @@ export default function MenuList({
                 <NoImage />
               )}
               <span className="min-w-0 flex-1">
-                <span className="t-body block truncate text-[14.5px] font-medium text-[#1c1c1e] dark:text-[#f2f2f7]">
-                  {m.name}
+                <span className="flex items-center gap-1.5">
+                  <span className="t-body truncate text-[14.5px] font-medium text-[#1c1c1e] dark:text-[#f2f2f7]">
+                    {m.name}
+                  </span>
+                  <Rating value={m.rating} count={m.rating_count} />
                 </span>
                 <span className="t-caption block text-[11px] font-medium text-[#3c3c43]/45 dark:text-[#ebebf5]/45">
                   가격 확인 {daysAgo(m.verified_at)}

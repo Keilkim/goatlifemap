@@ -70,8 +70,10 @@ body {
 .jm-pin {
   display: flex;
   flex-direction: column;
-  width: max-content;
-  max-width: 190px;
+  /* 배치 계산이 잡은 폭을 그대로 채워야 한다. max-content로 두면 핀이 계산보다
+     좁아지고, 인출선이 "계산상 박스 가장자리"에서 끝나는데 그 자리는 실제 핀 밖이라
+     선이 허공에서 끊긴다 (실제로 그랬다). */
+  width: 100%;
   padding: 3px;
   border-radius: 14px;
   /* 뒤가 비치면 메뉴명이 안 읽힌다. 지도 위에 얹는 물건은 재질이되 유리창은 아니다. */
@@ -100,6 +102,7 @@ body {
 .jm-pin:not(.jm-pin--menus) {
   flex-direction: row;
   align-items: center;
+  justify-content: center;
   gap: 5px;
   padding: 4px 9px;
   border-radius: 999px;
@@ -227,11 +230,12 @@ body {
   @media (prefers-color-scheme: dark) { .jm-pin { background: #1c1c1e; } }
 }
 
-/* 시트 뒤를 어둡게 — "지금 이걸 보라" */
+/* 시트 뒤를 어둡게 — "지금 이걸 보라".
+   블러는 걸지 않는다. 블러를 걸면 지금 보고 있는 그 가게까지 흐려져서,
+   아래 시트가 어느 가게 얘기인지 눈으로 잇지 못한다. 어둡게만 해서 초점을 옮기고
+   선택된 핀은 이 위로 올린다(z-index). */
 .jm-scrim {
-  background: rgb(0 0 0 / 0.22);
-  backdrop-filter: blur(3px);
-  -webkit-backdrop-filter: blur(3px);
+  background: rgb(0 0 0 / 0.28);
 }
 
 /* 하단 시트.
@@ -307,8 +311,10 @@ body {
 .jm-leader .jm-leader__line {
   stroke: #ff7a18;
   stroke-width: 1.75;
-  stroke-opacity: 0.95;
+  stroke-opacity: 1;
   stroke-linecap: round;
+  /* 점선을 쓰지 않는다. 반경 원은 "대략 여기까지"라 점선이 맞지만,
+     인출선은 "정확히 이 점과 이 박스"를 잇는 것이라 실선이어야 한다. */
 }
 .jm-leader circle {
   fill: #ff7a18;
@@ -543,4 +549,13 @@ body {
   }
   .leaflet-control-attribution,
   .leaflet-control-attribution a { color: #aeaeb2 !important; }
+}
+
+/* 메뉴명과 별점을 한 줄에. 이름이 길면 이름만 줄이고 별점은 남긴다 —
+   별점은 두 글자라 잘릴 게 없고, 잘리면 읽을 수가 없다. */
+.jm-row__head {
+  display: flex;
+  align-items: center;
+  gap: 3px;
+  min-width: 0;
 }

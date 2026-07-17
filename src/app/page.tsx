@@ -12,7 +12,7 @@ import Sheet from '@/components/Sheet'
 import MenuList from '@/components/MenuList'
 import MenuReview from '@/components/MenuReview'
 import Segmented from '@/components/Segmented'
-import { CLUSTER_ZOOM, type Cluster } from '@/lib/cluster'
+import { type Cluster } from '@/lib/cluster'
 
 // Leaflet은 window를 직접 만지므로 서버에서 렌더하면 터진다.
 const MapView = dynamic(() => import('@/components/MapView'), {
@@ -33,8 +33,6 @@ export default function Home() {
   const [flyTo, setFlyTo] = useState<[number, number] | null>(null)
   // 검색 단위는 화면 중심 + 반경이다 (사각형이 아니라).
   const [area, setArea] = useState<Area | null>(null)
-  // 지도를 움직였지만 아직 다시 찾지 않은 영역
-  const [stale, setStale] = useState<Area | null>(null)
   // 실제로 검색이 끝난 영역. 이것만 지도에 원으로 그린다.
   // 지도를 움직이는 중에 원이 따라다니면 아직 안 찾은 범위를 찾은 척하게 된다.
   const [searched, setSearched] = useState<Area | null>(null)
@@ -112,7 +110,6 @@ export default function Home() {
         setEmptyAreaStores(d.storesWithoutMenus ?? 0)
         // 검색이 끝난 뒤에야 원을 그린다 — 아직 안 찾은 범위를 찾은 척하면 안 된다
         setSearched(area)
-        setStale(null)
       } finally {
         setLoading(false)
       }
@@ -120,32 +117,17 @@ export default function Home() {
     []
   )
 
-  // 지도를 움직일 때마다 자동 재조회하면 화면이 계속 흔들리고 호출도 낭비된다.
-  // 대신 "이 지역에서 다시 찾기" 버튼을 띄워 사용자가 원할 때만 조회한다.
-  // 단 최초 1회는 사용자가 아무것도 안 했는데 화면이 비어 있으면 안 되므로 바로 조회한다.
-  const loadedOnce = useRef(false)
+  // 지도에서 손을 떼면 그 자리를 바로 찾는다.
+  //
+  // 전에는 "이 지역에서 다시 찾기" 버튼을 띄웠다. 드래그 중에 매 프레임 조회하면
+  // 화면이 흔들리고 호출도 낭비라서였는데, moveend/zoomend는 드래그가 끝난 뒤에만
+  // 한 번 오므로 그 걱정이 애초에 없었다. 버튼은 사용자에게 일을 하나 더 시킨 셈이다.
   const onMove = useCallback((map: LeafletMap) => {
     const c = map.getCenter()
     const area: Area = { lat: c.lat, lng: c.lng, radiusM: visibleRadius(map), zoom: map.getZoom() }
-
-    if (!loadedOnce.current) {
-      loadedOnce.current = true
-      setArea(area)
-      fetchStores(area, maxPrice, cats)
-      return
-    }
-
-    // 줌이 클러스터 경계를 넘나들면 화면이 통째로 바뀌어야 하므로 즉시 조회한다.
-    // "다시 찾기"를 기다리게 하면 개수 원과 가격 칩이 뒤섞여 보인다.
-    const wasCluster = zoomRef.current < CLUSTER_ZOOM
-    const isCluster = area.zoom < CLUSTER_ZOOM
     zoomRef.current = area.zoom
-    if (wasCluster !== isCluster || isCluster) {
-      setArea(area)
-      fetchStores(area, maxPrice, cats)
-      return
-    }
-    setStale(area)
+    setArea(area)
+    fetchStores(area, maxPrice, cats)
   }, [fetchStores, maxPrice, cats])
 
   // 필터가 바뀌면 현재 영역을 즉시 다시 조회한다.
@@ -155,12 +137,6 @@ export default function Home() {
     if (area) fetchStores(area, price, categories)
   }
 
-  const research = () => {
-    if (!stale) return
-    setArea(stale)
-    fetchStores(stale, maxPrice, cats)
-    track('map_research')
-  }
 
   const switchView = (next: ViewMode) => {
     if (next === view) return
@@ -324,14 +300,6 @@ export default function Home() {
       </div>
 
       {/* 이 지역에서 다시 찾기 — 필터 바로 아래 */}
-      {stale && !sheet && (
-        <button
-          onClick={research}
-          className="jm-press jm-card t-caption absolute left-1/2 top-[104px] z-[1050] -translate-x-1/2 rounded-full px-4 py-2 text-[12px] font-semibold text-[#1c1c1e] dark:text-[#f2f2f7]"
-        >
-          이 지역에서 다시 찾기
-        </button>
-      )}
 
       {/* 하단 토글 — 지도 위 마커가 메뉴를 보여줄지 식당을 보여줄지 바꾼다.
           메뉴로 보기가 왼쪽이다: 이 서비스의 주장이 "식당이 아니라 메뉴"이므로

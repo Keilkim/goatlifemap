@@ -3,6 +3,7 @@
 import { useEffect, useState } from 'react'
 import type { Menu } from '@/lib/types'
 import { daysAgo } from '@/lib/format'
+import Rating from './Rating'
 
 // 선택형 리뷰.
 //
@@ -39,6 +40,7 @@ export default function MenuReview({
   const [reviews, setReviews] = useState<Review[]>([])
   const [counts, setCounts] = useState<Record<string, number>>({})
   const [picked, setPicked] = useState<string[]>([])
+  const [stars, setStars] = useState(0)
   const [loading, setLoading] = useState(true)
   const [sent, setSent] = useState(false)
 
@@ -58,13 +60,13 @@ export default function MenuReview({
   }, [menu.id])
 
   const submit = async () => {
-    if (!picked.length) return
+    if (!picked.length && !stars) return
     const deviceId = localStorage.getItem('jm_device_id')
     if (!deviceId) return
     const res = await fetch('/api/reviews', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ userId: deviceId, menuId: menu.id, tags: picked }),
+      body: JSON.stringify({ userId: deviceId, menuId: menu.id, tags: picked, rating: stars || null }),
     })
     const d = await res.json()
     if (res.ok) {
@@ -95,10 +97,13 @@ export default function MenuReview({
           </span>
         )}
         <div className="min-w-0 flex-1">
-          <p className="t-price text-[20px] font-bold text-[#1c1c1e] dark:text-[#f2f2f7]">
-            {menu.price.toLocaleString()}
-            <span className="ml-0.5 text-[12px] font-medium text-[#3c3c43]/50 dark:text-[#ebebf5]/50">원</span>
-          </p>
+          <div className="flex items-baseline gap-2">
+            <p className="t-price text-[20px] font-bold text-[#1c1c1e] dark:text-[#f2f2f7]">
+              {menu.price.toLocaleString()}
+              <span className="ml-0.5 text-[12px] font-medium text-[#3c3c43]/50 dark:text-[#ebebf5]/50">원</span>
+            </p>
+            <Rating value={menu.rating} count={menu.rating_count} size="md" />
+          </div>
           <p className="t-caption truncate text-[11.5px] font-medium text-[#3c3c43]/55 dark:text-[#ebebf5]/55">
             {storeName} · 가격 확인 {daysAgo(menu.verified_at)}
           </p>
@@ -121,10 +126,32 @@ export default function MenuReview({
         </button>
       </div>
 
-      {/* 선택형 리뷰 — 장문 대신 태그 */}
+      {/* 선택형 리뷰 — 장문 대신 별점과 태그 */}
       <p className="t-caption mt-4 text-[11px] font-semibold text-[#3c3c43]/45 dark:text-[#ebebf5]/45">
         {sent ? '고마워요, 등록됐어요' : '먹어봤다면 알려주세요'}
       </p>
+
+      {!sent && (
+        <div className="mt-1.5 flex gap-0.5">
+          {[1, 2, 3, 4, 5].map((n) => (
+            <button
+              key={n}
+              onClick={() => setStars(stars === n ? 0 : n)}
+              aria-label={`${n}점`}
+              className="jm-press p-0.5"
+            >
+              <svg
+                viewBox="0 0 24 24"
+                className="size-7"
+                style={{ color: n <= stars ? '#ff7a18' : 'rgb(60 60 67 / 0.18)' }}
+                fill="currentColor"
+              >
+                <path d="M12 2.6l2.9 5.9 6.5.9-4.7 4.6 1.1 6.5-5.8-3-5.8 3 1.1-6.5-4.7-4.6 6.5-.9z" />
+              </svg>
+            </button>
+          ))}
+        </div>
+      )}
       <div className="mt-1.5 flex flex-wrap gap-1.5">
         {TAGS.map((t) => {
           const n = counts[t.key] ?? 0
@@ -147,7 +174,7 @@ export default function MenuReview({
         })}
       </div>
 
-      {picked.length > 0 && !sent && (
+      {(picked.length > 0 || stars > 0) && !sent && (
         <button
           onClick={submit}
           className="jm-press t-caption mt-2.5 w-full rounded-xl bg-[#1c1c1e] py-2.5 text-[13px] font-semibold text-white dark:bg-white dark:text-[#1c1c1e]"
