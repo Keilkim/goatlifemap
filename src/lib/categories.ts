@@ -32,3 +32,20 @@ export function expandCategories(labels: string[]): string[] {
   }
   return out
 }
+
+/**
+ * 개별 메뉴 아이콘이 없을 때 쓰는 카테고리 폴백 아이콘.
+ *
+ * 아이콘 없는 메뉴의 88.5%가 "1곳에만 있는 희귀 메뉴"라 하나씩 아이콘을 만들 수 없다.
+ * 그렇다고 X(사진 없음)를 두면 못 채운 티가 난다. 업종 아이콘으로 대신한다 —
+ * "한식 한 그릇" 실루엣이 X보다 덜 휑하고, 어차피 그 자리가 뭘 파는 곳인지는 맞다.
+ */
+export function categoryIcon(category: string | null): string {
+  const c = category ?? ''
+  if (c.startsWith('중국')) return '/icons/cat/chinese.png'
+  if (c.startsWith('일식') || c.includes('횟집') || c.includes('초밥')) return '/icons/cat/japanese.png'
+  if (c.includes('분식') || c.includes('김밥')) return '/icons/cat/bunsik.png'
+  if (c.startsWith('경양식') || c.startsWith('외국음식')) return '/icons/cat/western.png'
+  if (c.startsWith('한식')) return '/icons/cat/korean.png'
+  return '/icons/cat/etc.png'
+}

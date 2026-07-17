@@ -4,6 +4,7 @@ import { useEffect, useState } from 'react'
 import type { Menu } from '@/lib/types'
 import { daysAgo } from '@/lib/format'
 import Rating from './Rating'
+import { menuIcon } from '@/lib/menuIcon'
 
 // 선택형 리뷰.
 //
@@ -86,9 +87,9 @@ export default function MenuReview({
     <div className="px-4 pb-4">
       {/* 가격이 이 화면의 주인공이다 */}
       <div className="flex items-center gap-3 rounded-2xl bg-black/[0.03] p-3 dark:bg-white/[0.05]">
-        {menu.image_url ? (
+        {menuIcon(menu) ? (
           // eslint-disable-next-line @next/next/no-img-element
-          <img src={menu.image_url} alt="" className="size-14 shrink-0 rounded-full object-cover" />
+          <img src={menuIcon(menu)!} alt="" className="size-14 shrink-0 rounded-full object-cover" />
         ) : (
           <span className="flex size-14 shrink-0 items-center justify-center rounded-full bg-black/[0.04] dark:bg-white/[0.07]" aria-hidden>
             <svg viewBox="0 0 24 24" className="size-4 text-black/20 dark:text-white/25" fill="none" stroke="currentColor" strokeWidth="2.4" strokeLinecap="round">

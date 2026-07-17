@@ -5,6 +5,7 @@ import { useMap, useMapEvents } from 'react-leaflet'
 import type { Store, ViewMode } from '@/lib/types'
 import { placeLabels, leaderStart, type Box } from '@/lib/labels'
 import Rating from './Rating'
+import { menuIcon } from '@/lib/menuIcon'
 
 // 지도 위 라벨.
 //
@@ -136,9 +137,11 @@ export default function MenuLabels({
                   className={`jm-row ${m.id === selectedMenuId ? 'jm-row--on' : ''}`}
                   onClick={(e) => { e.stopPropagation(); onMenuTap(item, m.id) }}
                 >
-                  {m.image_url ? (
+                  {/* 개별 아이콘 → 업종 폴백 → (둘 다 없을 때만) X.
+                      한 끼 아닌 메뉴를 걸러내고 폴백까지 붙으면 X는 사실상 안 남는다. */}
+                  {menuIcon(m) ? (
                     // eslint-disable-next-line @next/next/no-img-element
-                    <img className="jm-row__img" src={m.image_url} alt="" loading="lazy" />
+                    <img className="jm-row__img" src={menuIcon(m)!} alt="" loading="lazy" />
                   ) : (
                     <span className="jm-row__img jm-row__img--none">
                       <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.6" strokeLinecap="round">

@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { sql } from '@/lib/db'
-import { expandCategories } from '@/lib/categories'
+import { expandCategories, categoryIcon } from '@/lib/categories'
 import { CLUSTER_ZOOM, gridSizeForZoom } from '@/lib/cluster'
 import { bboxAround, EARTH_R } from '@/lib/geo'
 
@@ -100,7 +100,7 @@ export async function GET(req: NextRequest) {
       lat: number; lng: number; source: string; distance_m: number
       menus: {
         id: string; name: string; price: number; is_available: boolean
-        verified_at: string; image_url: string | null
+        verified_at: string; image_url: string | null; fallback_icon?: string
         rating: number | null; rating_count: number
       }[]
       cheapest: number
@@ -130,6 +130,15 @@ export async function GET(req: NextRequest) {
     order by min(m.price)
     limit ${limit}
   `
+
+  // 개별 아이콘이 없는 메뉴는 업종 아이콘으로 채운다. image_url 자체는 null로 두고
+  // 폴백은 fallback_icon으로 따로 준다 — 나중에 진짜 아이콘이 생겼는지 구분하려면
+  // "진짜 아이콘 있음"과 "업종으로 때움"을 섞으면 안 된다.
+  for (const s of rows) {
+    for (const m of s.menus) {
+      if (!m.image_url) m.fallback_icon = categoryIcon(s.category)
+    }
+  }
 
   // 결과가 없을 때 "이 동네엔 식당이 없다"로 읽히면 안 된다.
   // 공공데이터로 서울 전역 가게는 이미 깔려 있고 메뉴만 아직 없는 것이므로,

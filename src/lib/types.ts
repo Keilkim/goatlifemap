@@ -10,6 +10,8 @@ export type Menu = {
   verified_at: string
   /** 사진 없는 게 기본이다. 없으면 UI가 자리표시를 채운다. */
   image_url: string | null
+  /** 개별 아이콘이 없을 때 API가 채워주는 업종 아이콘. image_url과 구분한다. */
+  fallback_icon?: string
   /** 메뉴 단위 평점. 아직 아무도 안 남겼으면 null — UI는 0.0을 옅게 보여준다. */
   rating: number | null
   rating_count: number

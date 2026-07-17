@@ -3,6 +3,7 @@
 import type { Store, Menu } from '@/lib/types'
 import { daysAgo } from '@/lib/format'
 import Rating from './Rating'
+import { menuIcon } from '@/lib/menuIcon'
 
 /** 사진이 없는 게 기본이다. 사진까지 요구하면 메뉴 입력이 급격히 느려진다. */
 function NoImage({ size = 'size-11' }: { size?: string }) {
@@ -48,9 +49,9 @@ export default function MenuList({
               onClick={() => onMenuClick(m)}
               className="flex w-full items-center gap-3 rounded-2xl px-2 py-2 text-left transition-colors hover:bg-black/[0.03] active:bg-black/[0.05] dark:hover:bg-white/[0.05]"
             >
-              {m.image_url ? (
+              {menuIcon(m) ? (
                 // eslint-disable-next-line @next/next/no-img-element
-                <img src={m.image_url} alt="" loading="lazy" className="size-11 shrink-0 rounded-full object-cover" />
+                <img src={menuIcon(m)!} alt="" loading="lazy" className="size-11 shrink-0 rounded-full object-cover" />
               ) : (
                 <NoImage />
               )}
