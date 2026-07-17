@@ -314,6 +314,41 @@ body {
   }
 }
 
+/* 카드 꼬리 — 어느 마커의 카드인지 눈으로 잇는다.
+   카드와 같은 재질이어야 한 덩어리로 읽힌다. */
+.jm-tail {
+  width: 12px;
+  height: 12px;
+  margin-top: -6px;
+  border-radius: 2px;
+  background: rgb(255 255 255 / 0.74);
+  border-right: 0.5px solid rgb(255 255 255 / 0.6);
+  border-bottom: 0.5px solid rgb(255 255 255 / 0.6);
+  backdrop-filter: blur(28px) saturate(180%);
+  -webkit-backdrop-filter: blur(28px) saturate(180%);
+}
+/* 카드가 마커 아래로 뒤집히면 꼬리도 위를 가리켜야 한다 */
+.jm-tail--up {
+  margin-top: 0;
+  margin-bottom: -6px;
+  border-right: 0;
+  border-bottom: 0;
+  border-left: 0.5px solid rgb(255 255 255 / 0.6);
+  border-top: 0.5px solid rgb(255 255 255 / 0.6);
+}
+@media (prefers-color-scheme: dark) {
+  .jm-tail {
+    background: rgb(28 28 30 / 0.74);
+    border-color: rgb(255 255 255 / 0.12);
+  }
+}
+@media (prefers-reduced-transparency: reduce) {
+  .jm-tail { background: #fff; backdrop-filter: none; -webkit-backdrop-filter: none; }
+  @media (prefers-color-scheme: dark) {
+    .jm-tail { background: #1c1c1e; }
+  }
+}
+
 /* 누르는 순간 반응한다. 떼기를 기다리면 죽은 것처럼 느껴진다. */
 .jm-press {
   transition: transform 0.28s cubic-bezier(0.34, 1.4, 0.64, 1), opacity 0.15s ease-out;

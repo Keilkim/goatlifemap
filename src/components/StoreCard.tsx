@@ -16,10 +16,10 @@ const MAX_MENUS = 5
 function NoImage() {
   return (
     <div
-      className="flex size-9 shrink-0 items-center justify-center rounded-full bg-black/[0.04] dark:bg-white/[0.07]"
+      className="flex size-8 shrink-0 items-center justify-center rounded-full bg-black/[0.04] dark:bg-white/[0.07]"
       aria-hidden
     >
-      <svg viewBox="0 0 24 24" className="size-3 text-black/20 dark:text-white/25" fill="none" stroke="currentColor" strokeWidth="2.4" strokeLinecap="round">
+      <svg viewBox="0 0 24 24" className="size-2.5 text-black/20 dark:text-white/25" fill="none" stroke="currentColor" strokeWidth="2.6" strokeLinecap="round">
         <path d="M7 7l10 10M17 7L7 17" />
       </svg>
     </div>
@@ -39,12 +39,13 @@ function WalkIcon() {
   )
 }
 
+// 닫기 버튼이 없는 이유: Leaflet 팝업이라 지도 아무 데나 누르면 닫힌다.
+// 좁은 카드에 X를 넣으면 길찾기 버튼과 자리를 다투기만 한다.
 export default function StoreCard({
-  store, distance, onClose, onDirections, onMenuClick,
+  store, distance, onDirections, onMenuClick,
 }: {
   store: Store
   distance: number | null
-  onClose: () => void
   onDirections: () => void
   onMenuClick: (menuId: string) => void
 }) {
@@ -82,19 +83,18 @@ export default function StoreCard({
     <div
       ref={ref}
       style={{ WebkitBackdropFilter: 'blur(28px) saturate(180%)' }}
-      className="jm-card absolute inset-x-2.5 bottom-2.5 z-[1000] overflow-hidden rounded-[20px] will-change-transform"
+      className="jm-card w-[228px] overflow-hidden rounded-[16px] will-change-transform"
     >
       {/* 헤더: 가게 이름 + 우측 상단 길찾기.
           가벼운 재질 위에 또 가벼운 재질을 얹지 않는다 — 구분은 선이 아니라 여백으로. */}
-      <div className="flex items-center gap-1.5 px-3 pb-1.5 pt-2.5">
+      <div className="flex items-start gap-1 px-2.5 pb-1 pt-2">
         <div className="min-w-0 flex-1">
-          <p className="t-title truncate text-[14.5px] font-semibold text-[#1c1c1e] dark:text-[#f2f2f7]">
+          <p className="t-title truncate text-[13.5px] font-semibold text-[#1c1c1e] dark:text-[#f2f2f7]">
             {store.name}
           </p>
-          <p className="t-caption mt-px truncate text-[11px] font-medium text-[#3c3c43]/55 dark:text-[#ebebf5]/55">
+          <p className="t-caption mt-px truncate text-[10.5px] font-medium text-[#3c3c43]/55 dark:text-[#ebebf5]/55">
             {store.category}
             {distance !== null && ` · 도보 ${walkMinutes(distance)}분`}
-            {store.menus.length > 0 && ` · 최저 ${store.cheapest.toLocaleString()}원`}
           </p>
         </div>
 
@@ -102,45 +102,36 @@ export default function StoreCard({
           onClick={onDirections}
           aria-label="길찾기"
           title="길찾기"
-          className="jm-press flex size-8 shrink-0 items-center justify-center rounded-full bg-[#ff7a18] text-white shadow-[0_2px_8px_rgb(234_88_12/0.32)]"
+          className="jm-press flex size-7 shrink-0 items-center justify-center rounded-full bg-[#ff7a18] text-white shadow-[0_2px_6px_rgb(234_88_12/0.32)]"
         >
           <WalkIcon />
         </button>
-        <button
-          onClick={onClose}
-          aria-label="닫기"
-          className="jm-press flex size-8 shrink-0 items-center justify-center rounded-full bg-black/[0.05] text-[#3c3c43]/45 dark:bg-white/[0.09] dark:text-[#ebebf5]/45"
-        >
-          <svg viewBox="0 0 24 24" className="size-3.5" fill="none" stroke="currentColor" strokeWidth="2.6" strokeLinecap="round">
-            <path d="M7 7l10 10M17 7L7 17" />
-          </svg>
-        </button>
       </div>
 
-      {/* 메뉴: 왼쪽 원형 이미지, 오른쪽 이름과 그 아래 가격.
+      {/* 메뉴: 왼쪽 원형 사진(없으면 X), 오른쪽 이름과 그 아래 가격.
           검증 버튼은 여기 두지 않는다 — 지도 위 카드는 지도를 가리는 만큼만 값을 해야 하고,
           가격 확인은 아래 메뉴 목록에서 이미 할 수 있다. */}
-      <ul className="jm-scroll max-h-[172px] overflow-y-auto overscroll-contain px-1.5 pb-1.5">
+      <ul className="jm-scroll max-h-[164px] overflow-y-auto overscroll-contain px-1 pb-1">
         {menus.map((m) => (
           <li key={m.id}>
             <button
               onClick={() => onMenuClick(m.id)}
-              className="flex w-full items-center gap-2.5 rounded-[14px] px-2 py-1 text-left transition-colors hover:bg-black/[0.03] dark:hover:bg-white/[0.05]"
+              className="flex w-full items-center gap-2 rounded-[12px] px-1.5 py-1 text-left transition-colors hover:bg-black/[0.03] dark:hover:bg-white/[0.05]"
             >
               {m.image_url ? (
                 // eslint-disable-next-line @next/next/no-img-element
-                <img src={m.image_url} alt="" loading="lazy" className="size-9 shrink-0 rounded-full object-cover" />
+                <img src={m.image_url} alt="" loading="lazy" className="size-8 shrink-0 rounded-full object-cover" />
               ) : (
                 <NoImage />
               )}
 
               <span className="min-w-0 flex-1">
-                <span className="t-body block truncate text-[13.5px] font-medium text-[#1c1c1e] dark:text-[#f2f2f7]">
+                <span className="t-body block truncate text-[12.5px] font-medium text-[#1c1c1e] dark:text-[#f2f2f7]">
                   {m.name}
                 </span>
-                <span className="t-price block text-[14px] font-semibold text-[#1c1c1e] dark:text-[#f2f2f7]">
+                <span className="t-price block text-[13px] font-semibold text-[#1c1c1e] dark:text-[#f2f2f7]">
                   {m.price.toLocaleString()}
-                  <span className="ml-0.5 text-[10.5px] font-medium text-[#3c3c43]/50 dark:text-[#ebebf5]/50">원</span>
+                  <span className="ml-px text-[9.5px] font-medium text-[#3c3c43]/50 dark:text-[#ebebf5]/50">원</span>
                 </span>
               </span>
             </button>
@@ -149,7 +140,7 @@ export default function StoreCard({
       </ul>
 
       {hidden > 0 && (
-        <p className="t-caption pb-2 text-center text-[10.5px] font-medium text-[#3c3c43]/45 dark:text-[#ebebf5]/45">
+        <p className="t-caption pb-1.5 text-center text-[10px] font-medium text-[#3c3c43]/45 dark:text-[#ebebf5]/45">
           메뉴 {hidden}개 더
         </p>
       )}

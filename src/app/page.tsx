@@ -232,6 +232,8 @@ export default function Home() {
   const isClustered = clusters.length > 0
   const clusterTotal = useMemo(() => clusters.reduce((n, c) => n + c.count, 0), [clusters])
 
+  const closeCard = useCallback(() => setCardStoreId(null), [])
+
   const verify = async (menuId: string, kind: string) => {
     if (!userIdRef.current) return
     track('verify_click', { menuId, kind })
@@ -253,10 +255,28 @@ export default function Home() {
   // 길찾기는 목적지만 넘기고 카카오맵에 맡긴다.
   // 출발지 좌표를 우리가 넘길 이유가 없다 — 카카오맵이 알아서 사용자 위치를 잡고,
   // 우리는 위치정보를 취급하지 않아도 된다.
-  const directions = (lat: number, lng: number, name: string) => {
+  const directions = useCallback((lat: number, lng: number, name: string) => {
     track('directions_click', { name, view })
     window.open(`https://map.kakao.com/link/to/${encodeURIComponent(name)},${lat},${lng}`, '_blank')
-  }
+  }, [view])
+
+  // 카드는 그 가게 포인트에 붙어서 뜬다. 화면 하단에 폭 넓게 띄우면
+  // 어느 가게 것인지 눈으로 잇지 못하고 지도도 통째로 가린다.
+  // useCallback으로 고정하지 않으면 매 렌더마다 지도 전체가 다시 그려진다.
+  const renderCard = useCallback(
+    (s: Store) => (
+      <StoreCard
+        store={s}
+        distance={withDistance(s.lat, s.lng)}
+        onDirections={() => directions(s.lat, s.lng, s.name)}
+        onMenuClick={(menuId) => {
+          const m = s.menus.find((x) => x.id === menuId)
+          track('menu_card_click', { id: menuId, name: m?.name, price: m?.price, from: 'map_card' })
+        }}
+      />
+    ),
+    [withDistance, directions]
+  )
 
   return (
     <main className="flex h-dvh flex-col bg-white dark:bg-neutral-950">
@@ -334,6 +354,8 @@ export default function Home() {
           locating={locating}
           searchedRadius={searched?.radiusM ?? 0}
           searchedCenter={searched ? [searched.lat, searched.lng] : null}
+          onPopupClose={closeCard}
+          renderCard={renderCard}
         />
         {stale && !cardStore && (
           <button
@@ -351,28 +373,18 @@ export default function Home() {
           </span>
         )}
 
-        {/* 마커를 누르면 그 가게를 묶어 지도 위에 띄운다 */}
-        {cardStore && (
-          <StoreCard
-            store={cardStore}
-            distance={withDistance(cardStore.lat, cardStore.lng)}
-            onClose={() => setCardStoreId(null)}
-            onDirections={() => directions(cardStore.lat, cardStore.lng, cardStore.name)}
-            onMenuClick={(menuId) => {
-              const m = cardStore.menus.find((x) => x.id === menuId)
-              track('menu_card_click', { id: menuId, name: m?.name, price: m?.price, from: 'map_card' })
-            }}
-          />
-        )}
       </div>
 
       <div className="jm-chrome flex items-center justify-between px-4 py-2">
+        {/* 메뉴로 보기가 왼쪽이다 — 이 서비스의 주장이 "식당이 아니라 메뉴"이므로
+            먼저 오는 자리를 준다. 단 처음 선택되는 쪽은 A/B가 정한다: 기본값을
+            한쪽으로 고정하면 그 보기 사용량이 당연히 높게 나와 니즈를 오독한다. */}
         <Segmented
           value={view}
           onChange={switchView}
           options={[
-            { value: 'store', label: '식당으로 보기' },
             { value: 'menu', label: '메뉴로 보기' },
+            { value: 'store', label: '식당으로 보기' },
           ]}
         />
         <span className="t-caption text-[11.5px] font-medium text-[#3c3c43]/55 dark:text-[#ebebf5]/55">
