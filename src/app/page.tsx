@@ -3,12 +3,14 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import dynamic from 'next/dynamic'
 import type { Map as LeafletMap } from 'leaflet'
-import type { Store, ViewMode, Area } from '@/lib/types'
-import { distanceMeters } from '@/lib/coords'
+import type { Store, Menu, ViewMode, Area } from '@/lib/types'
+import { distanceMeters, walkMinutes } from '@/lib/coords'
 import { visibleRadius, radiusLabel } from '@/lib/geo'
 import { initAnalytics, track, DwellTimer } from '@/lib/analytics'
 import { CATEGORY_FILTERS } from '@/lib/categories'
-import StoreCard from '@/components/StoreCard'
+import Sheet from '@/components/Sheet'
+import MenuList from '@/components/MenuList'
+import MenuReview from '@/components/MenuReview'
 import Segmented from '@/components/Segmented'
 import { CLUSTER_ZOOM, type Cluster } from '@/lib/cluster'
 
@@ -39,8 +41,13 @@ export default function Home() {
   const [variant, setVariant] = useState<string | null>(null)
   const [points, setPoints] = useState(0)
   const [locating, setLocating] = useState(false)
-  // 마커를 눌러 카드를 띄운 가게. 목록 클릭만으로는 카드를 띄우지 않는다.
-  const [cardStoreId, setCardStoreId] = useState<string | null>(null)
+  // 하단 시트. 두 가지만 담는다 — 그 가게의 전체 메뉴, 또는 그 메뉴의 리뷰.
+  // fromMenus는 "전체 메뉴를 거쳐 리뷰로 왔나"다. 그래야 뒤로가기를 줄지 알 수 있다.
+  const [sheet, setSheet] = useState<
+    | { kind: 'menus'; store: Store }
+    | { kind: 'review'; store: Store; menu: Menu; fromMenus: boolean }
+    | null
+  >(null)
   const [clusters, setClusters] = useState<Cluster[]>([])
   // onMove 콜백이 직전 줌을 알아야 클러스터 경계를 넘었는지 판단할 수 있다.
   // 렌더에 쓰이지 않으므로 상태가 아니라 ref다.
@@ -193,16 +200,10 @@ export default function Home() {
     [userLocation]
   )
 
-  // 재조회로 목록이 바뀌면 사라진 가게의 카드는 자동으로 닫힌다
-  const cardStore = useMemo(
-    () => stores.find((s) => s.id === cardStoreId) ?? null,
-    [stores, cardStoreId]
-  )
-
   const isClustered = clusters.length > 0
   const clusterTotal = useMemo(() => clusters.reduce((n, c) => n + c.count, 0), [clusters])
 
-  const closeCard = useCallback(() => setCardStoreId(null), [])
+  const closeSheet = useCallback(() => setSheet(null), [])
 
   // 가격 검증. 이 서비스의 생사는 "지금 그 가격이 맞나"에 달려 있으므로
   // 목록을 없애도 검증까지 없앨 수는 없다. 카드 안에서 한 번의 탭으로 한다.
@@ -232,24 +233,21 @@ export default function Home() {
     window.open(`https://map.kakao.com/link/to/${encodeURIComponent(name)},${lat},${lng}`, '_blank')
   }, [view])
 
-  // 카드는 그 가게 포인트에 붙어서 뜬다. 화면 하단에 폭 넓게 띄우면
-  // 어느 가게 것인지 눈으로 잇지 못하고 지도도 통째로 가린다.
-  // useCallback으로 고정하지 않으면 매 렌더마다 지도 전체가 다시 그려진다.
-  const renderCard = useCallback(
-    (s: Store) => (
-      <StoreCard
-        store={s}
-        distance={withDistance(s.lat, s.lng)}
-        onDirections={() => directions(s.lat, s.lng, s.name)}
-        onVerify={verify}
-        onMenuClick={(menuId) => {
-          const m = s.menus.find((x) => x.id === menuId)
-          track('menu_card_click', { id: menuId, name: m?.name, price: m?.price, from: 'map_card' })
-        }}
-      />
-    ),
-    [withDistance, directions, verify]
-  )
+  // 지도 위 메뉴를 바로 눌렀다 → 그 메뉴의 리뷰. 전체 메뉴를 거치지 않았으므로 뒤로가기가 없다.
+  const openReviewFromMap = useCallback((store: Store, menuId: string) => {
+    const menu = store.menus.find((m) => m.id === menuId)
+    if (!menu) return
+    setSelectedId(store.id)
+    track('menu_card_click', { id: menuId, name: menu.name, price: menu.price, from: 'map' })
+    setSheet({ kind: 'review', store, menu, fromMenus: false })
+  }, [])
+
+  // 식당을 눌렀거나 "메뉴 N개 더"를 눌렀다 → 그 가게 전체 메뉴
+  const openMenus = useCallback((store: Store) => {
+    setSelectedId(store.id)
+    track('store_card_click', { id: store.id, name: store.name })
+    setSheet({ kind: 'menus', store })
+  }, [])
 
   return (
     <main className="relative h-dvh overflow-hidden bg-white dark:bg-black">
@@ -261,12 +259,9 @@ export default function Home() {
         clusters={clusters}
         selectedId={selectedId}
         view={view}
-        onSelect={(id) => {
-          setSelectedId(id)
-          setCardStoreId(id)
-          const s = stores.find((x) => x.id === id)
-          track('marker_click', { id, name: s?.name, view })
-        }}
+        selectedMenuId={sheet?.kind === 'review' ? sheet.menu.id : null}
+        onMenuTap={openReviewFromMap}
+        onStoreTap={openMenus}
         onMove={onMove}
         userLocation={userLocation}
         flyTo={flyTo}
@@ -274,8 +269,7 @@ export default function Home() {
         locating={locating}
         searchedRadius={searched?.radiusM ?? 0}
         searchedCenter={searched ? [searched.lat, searched.lng] : null}
-        onPopupClose={closeCard}
-        renderCard={renderCard}
+        onPopupClose={closeSheet}
       />
 
       {/* 상단 크롬 — 지도 위에 떠 있는 반투명 층. 지도를 잘라먹지 않는다. */}
@@ -330,7 +324,7 @@ export default function Home() {
       </div>
 
       {/* 이 지역에서 다시 찾기 — 필터 바로 아래 */}
-      {stale && !cardStore && (
+      {stale && !sheet && (
         <button
           onClick={research}
           className="jm-press jm-card t-caption absolute left-1/2 top-[104px] z-[1050] -translate-x-1/2 rounded-full px-4 py-2 text-[12px] font-semibold text-[#1c1c1e] dark:text-[#f2f2f7]"
@@ -380,6 +374,43 @@ export default function Home() {
             지도를 옮기거나 가격 조건을 넓혀보세요
           </p>
         </div>
+      )}
+
+      {/* 하단 시트 — 전체 메뉴 아니면 메뉴 리뷰, 둘 뿐이다. */}
+      {sheet?.kind === 'menus' && (
+        <Sheet
+          open
+          onClose={closeSheet}
+          title={sheet.store.name}
+          subtitle={`${sheet.store.category ?? ''} · 메뉴 ${sheet.store.menus.length}개${
+            withDistance(sheet.store.lat, sheet.store.lng) !== null
+              ? ` · 도보 ${walkMinutes(withDistance(sheet.store.lat, sheet.store.lng)!)}분`
+              : ''
+          }`}
+        >
+          <MenuList
+            store={sheet.store}
+            onDirections={() => directions(sheet.store.lat, sheet.store.lng, sheet.store.name)}
+            // 전체 메뉴에서 메뉴를 눌러 리뷰로 들어가면 뒤로 돌아갈 수 있어야 한다
+            onMenuClick={(menu) => {
+              track('menu_card_click', { id: menu.id, name: menu.name, price: menu.price, from: 'menu_sheet' })
+              setSheet({ kind: 'review', store: sheet.store, menu, fromMenus: true })
+            }}
+          />
+        </Sheet>
+      )}
+
+      {sheet?.kind === 'review' && (
+        <Sheet
+          open
+          onClose={closeSheet}
+          // 전체 메뉴를 거쳐 왔을 때만 뒤로가기. 지도에서 바로 왔으면 돌아갈 곳이 없다.
+          onBack={sheet.fromMenus ? () => setSheet({ kind: 'menus', store: sheet.store }) : undefined}
+          title={sheet.menu.name}
+          subtitle={sheet.store.name}
+        >
+          <MenuReview key={sheet.menu.id} menu={sheet.menu} storeName={sheet.store.name} onVerify={verify} />
+        </Sheet>
       )}
     </main>
   )

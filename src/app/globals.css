@@ -62,41 +62,262 @@ body {
   letter-spacing: -0.01em;
 }
 
-/* 가격 마커.
-   기존 지도처럼 식당명만 띄우지 않고 최저가를 마커에 직접 얹는다.
-   "지금 이 동네에서 얼마로 먹을 수 있나"가 한눈에 보여야 하기 때문이다.
+/* 지도 위 핀.
+   메뉴로 보기에서는 이게 곧 메뉴판이다 — 누르지 않아도 사진·이름·가격이 보인다.
+   식당으로 보기에서는 식당명과 메뉴 개수만.
 
-   재질: 지도 위에 뜨는 칩이므로 불투명 흰 덩어리가 아니라 빛을 받는 유리처럼 만든다.
-   작은 표면이라 블러는 약하게, 그림자도 얕게 — 큰 표면일수록 두껍게 읽혀야 한다. */
-.jm-marker {
-  display: inline-flex;
-  align-items: baseline;
+   재질: 지도 위에 뜨는 물건이므로 불투명 덩어리가 아니라 빛을 받는 유리처럼 만든다. */
+.jm-pin {
+  display: flex;
+  flex-direction: column;
+  width: max-content;
+  max-width: 190px;
+  padding: 3px;
+  border-radius: 14px;
+  /* 뒤가 비치면 메뉴명이 안 읽힌다. 지도 위에 얹는 물건은 재질이되 유리창은 아니다. */
+  background: rgb(255 255 255 / 0.97);
+  backdrop-filter: blur(24px) saturate(180%);
+  -webkit-backdrop-filter: blur(24px) saturate(180%);
+  border: 0.5px solid rgb(255 255 255 / 0.7);
+  box-shadow:
+    0 1px 3px rgb(0 0 0 / 0.14),
+    0 6px 16px rgb(0 0 0 / 0.1);
+  cursor: pointer;
+  transition:
+    transform 0.32s cubic-bezier(0.34, 1.4, 0.64, 1),
+    box-shadow 0.32s cubic-bezier(0.34, 1.4, 0.64, 1);
+  will-change: transform;
+}
+.jm-pin--on {
+  box-shadow:
+    0 0 0 2px #ff7a18,
+    0 2px 8px rgb(234 88 12 / 0.28),
+    0 10px 24px rgb(234 88 12 / 0.2);
+  z-index: 1000;
+}
+
+/* 식당으로 보기 — 이름과 개수만 */
+.jm-pin:not(.jm-pin--menus) {
+  flex-direction: row;
+  align-items: center;
   gap: 5px;
   padding: 4px 9px;
   border-radius: 999px;
-  background: rgb(255 255 255 / 0.9);
-  backdrop-filter: blur(12px) saturate(180%);
-  -webkit-backdrop-filter: blur(12px) saturate(180%);
-  /* 위쪽 밝은 테두리 = 재질이 빛을 받는 느낌 */
-  border: 0.5px solid rgb(255 255 255 / 0.7);
-  box-shadow:
-    0 1px 2px rgb(0 0 0 / 0.12),
-    0 4px 12px rgb(0 0 0 / 0.08);
+}
+.jm-pin__name {
   font-size: 12px;
   font-weight: 600;
-  /* 작은 텍스트는 자간을 살짝 벌려야 읽힌다 */
-  letter-spacing: 0.01em;
+  letter-spacing: -0.005em;
   color: #1c1c1e;
+  overflow: hidden;
+  text-overflow: ellipsis;
   white-space: nowrap;
+  max-width: 130px;
+}
+.jm-pin__count {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 16px;
+  height: 16px;
+  padding: 0 4px;
+  border-radius: 999px;
+  background: #ff7a18;
+  color: #fff;
+  font-size: 10px;
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+}
+
+/* 메뉴로 보기 — 사진 / 이름 / 그 아래 가격 */
+.jm-row {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  padding: 3px 6px 3px 3px;
+  border-radius: 11px;
+  text-align: left;
+  transition: background-color 0.15s ease-out;
+}
+.jm-row:active {
+  background: rgb(0 0 0 / 0.06);
+}
+/* 누른 메뉴만 강조한다. 박스 전체를 두르면 아래 시트엔 메뉴 하나만 떠 있는데
+   지도엔 여러 개가 묶여 보여서 뭘 보고 있는지 헷갈린다. */
+.jm-row--on {
+  background: #ff7a18;
+}
+.jm-row--on .jm-row__name { color: rgb(255 255 255 / 0.85); }
+.jm-row--on .jm-row__price { color: #fff; }
+.jm-row--on .jm-row__price i { color: rgb(255 255 255 / 0.7); }
+.jm-row--on .jm-row__img--none { background: rgb(255 255 255 / 0.2); color: rgb(255 255 255 / 0.6); }
+.jm-row__img {
+  width: 30px;
+  height: 30px;
+  flex-shrink: 0;
+  border-radius: 999px;
+  object-fit: cover;
+}
+.jm-row__img--none {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: rgb(0 0 0 / 0.05);
+  color: rgb(0 0 0 / 0.2);
+}
+.jm-row__img--none svg { width: 11px; height: 11px; }
+.jm-row__text {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  line-height: 1.2;
+}
+.jm-row__name {
+  font-size: 11.5px;
+  font-weight: 500;
+  color: #3c3c43;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  max-width: 118px;
+}
+.jm-row__price {
+  font-size: 13px;
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+  letter-spacing: -0.01em;
+  color: #1c1c1e;
+}
+.jm-row__price i {
+  font-style: normal;
+  font-size: 9px;
+  font-weight: 500;
+  color: rgb(60 60 67 / 0.5);
+  margin-left: 1px;
+}
+
+/* 더 있으면 하단 시트로 */
+.jm-more {
+  margin: 1px 3px 2px;
+  padding: 3px;
+  border-radius: 8px;
+  background: rgb(0 0 0 / 0.04);
+  font-size: 10px;
+  font-weight: 600;
+  color: rgb(60 60 67 / 0.6);
+  transition: background-color 0.15s ease-out;
+}
+.jm-more:active { background: rgb(0 0 0 / 0.09); }
+
+@media (prefers-color-scheme: dark) {
+  .jm-pin {
+    background: rgb(28 28 30 / 0.96);
+    border-color: rgb(255 255 255 / 0.14);
+    box-shadow: 0 1px 3px rgb(0 0 0 / 0.5), 0 6px 16px rgb(0 0 0 / 0.35);
+  }
+  .jm-pin__name, .jm-row__price { color: #f2f2f7; }
+  .jm-row__name { color: #ebebf5; }
+  .jm-row__img--none { background: rgb(255 255 255 / 0.08); color: rgb(255 255 255 / 0.25); }
+  .jm-row__price i { color: rgb(235 235 245 / 0.5); }
+  .jm-more { background: rgb(255 255 255 / 0.08); color: rgb(235 235 245 / 0.6); }
+  .jm-row:active { background: rgb(255 255 255 / 0.08); }
+}
+@media (prefers-reduced-transparency: reduce) {
+  .jm-pin { background: #fff; backdrop-filter: none; -webkit-backdrop-filter: none; }
+  @media (prefers-color-scheme: dark) { .jm-pin { background: #1c1c1e; } }
+}
+
+/* 시트 뒤를 어둡게 — "지금 이걸 보라" */
+.jm-scrim {
+  background: rgb(0 0 0 / 0.22);
+  backdrop-filter: blur(3px);
+  -webkit-backdrop-filter: blur(3px);
+}
+
+/* 하단 시트.
+   큰 표면이고 그 위에서 글을 읽어야 한다. 지도 위 핀과 같은 얇은 유리로 만들면
+   지도가 그대로 비쳐 글자가 안 읽힌다 — 큰 표면일수록 두껍게 읽혀야 한다. */
+.jm-sheet {
+  background: rgb(252 252 253 / 0.97);
+  backdrop-filter: blur(30px) saturate(180%);
+  -webkit-backdrop-filter: blur(30px) saturate(180%);
+  border-top: 0.5px solid rgb(255 255 255 / 0.8);
+  box-shadow: 0 -8px 40px rgb(0 0 0 / 0.16);
+}
+@media (prefers-color-scheme: dark) {
+  .jm-sheet {
+    background: rgb(28 28 30 / 0.97);
+    border-top-color: rgb(255 255 255 / 0.12);
+    box-shadow: 0 -8px 40px rgb(0 0 0 / 0.6);
+  }
+}
+@media (prefers-reduced-transparency: reduce) {
+  .jm-sheet { background: #fff; backdrop-filter: none; -webkit-backdrop-filter: none; }
+  @media (prefers-color-scheme: dark) { .jm-sheet { background: #1c1c1e; } }
+}
+
+/* 가게 위치 점.
+   메뉴 박스가 가게를 가리면 안 되므로, 정확한 위치는 이 점이 표시하고
+   박스는 겹치지 않는 자리로 밀어낸 뒤 인출선으로 잇는다. */
+.jm-dot {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 22px;
+  height: 22px;
+  border-radius: 999px;
+  background: #fff;
+  border: 2px solid #ff7a18;
+  box-shadow: 0 1px 4px rgb(0 0 0 / 0.25);
+  color: #ff7a18;
   cursor: pointer;
-  width: max-content;
-  /* 스프링처럼 읽히도록 살짝 오버슈트하는 커브. 마커는 제스처로 잡는 대상이 아니라
-     탭 대상이므로 CSS transition으로 충분하다. */
-  transition:
-    transform 0.32s cubic-bezier(0.34, 1.4, 0.64, 1),
-    background-color 0.2s ease-out,
-    box-shadow 0.32s cubic-bezier(0.34, 1.4, 0.64, 1);
-  will-change: transform;
+  transition: transform 0.3s cubic-bezier(0.34, 1.4, 0.64, 1);
+}
+.jm-dot svg { width: 12px; height: 12px; }
+.jm-dot--on {
+  background: #ff7a18;
+  color: #fff;
+  transform: scale(1.2);
+}
+.jm-dot:active { transform: scale(0.9); }
+@media (prefers-color-scheme: dark) {
+  .jm-dot { background: #1c1c1e; }
+  .jm-dot--on { background: #ff7a18; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .jm-dot, .jm-dot:active, .jm-dot--on { transition: none; transform: none; }
+}
+
+/* 인출선 — 박스가 어느 점의 것인지 잇는다.
+   지도 위 어디에 떨어질지 모르므로 색 하나로는 안 보인다. 지도 제작의 오래된 방법을
+   쓴다: 굵은 흰 선을 밑에 깔고(halo) 그 위에 주황 선을 얹는다. 그러면 어두운 건물
+   위에서도, 밝은 도로 위에서도 읽힌다. 지도를 갈아엎지 않고 선만 고치면 되는 문제다. */
+.jm-leader {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  z-index: 400;
+}
+.jm-leader .jm-leader__halo {
+  stroke: #fff;
+  stroke-width: 4;
+  stroke-opacity: 0.9;
+  stroke-linecap: round;
+}
+.jm-leader .jm-leader__line {
+  stroke: #ff7a18;
+  stroke-width: 1.75;
+  stroke-opacity: 0.95;
+  stroke-linecap: round;
+}
+.jm-leader circle {
+  fill: #ff7a18;
+  stroke: #fff;
+  stroke-width: 1.5;
+}
+@media (prefers-color-scheme: dark) {
+  .jm-leader .jm-leader__halo { stroke: #000; stroke-opacity: 0.75; }
+  .jm-leader circle { stroke: #1c1c1e; }
 }
 
 /* Leaflet은 마커 위치를 아이콘 요소의 transform으로 잡는다. 그래서 라벨 정렬을
@@ -107,110 +328,20 @@ body {
   transform: translate(-50%, -100%);
 }
 
-/* 메뉴명은 차분하게, 가격이 주인공 */
-.jm-marker__name {
-  font-weight: 500;
-  color: #3c3c43;
-  max-width: 92px;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-.jm-marker__price {
-  font-weight: 700;
-  font-variant-numeric: tabular-nums;
-  letter-spacing: -0.01em;
-}
-.jm-marker--on .jm-marker__name {
-  color: rgb(255 255 255 / 0.85);
-}
-
-/* 반응은 누르는 순간에. 떼는 순간까지 기다리면 죽은 것처럼 느껴진다. */
-.jm-marker:active {
-  transform: scale(0.94);
-  transition-duration: 0.1s;
-}
-
-.jm-marker--on {
-  background: rgb(255 122 24 / 0.94);
-  border-color: rgb(255 255 255 / 0.35);
-  color: #fff;
-  /* 선택된 마커는 손가락 쪽으로 자라난다 — 다음에 뭐가 열릴지 예고한다 */
-  transform: scale(1.14);
-  box-shadow:
-    0 2px 6px rgb(234 88 12 / 0.3),
-    0 8px 20px rgb(234 88 12 / 0.22);
-  z-index: 1000;
-}
-.jm-marker--on:active {
-  transform: scale(1.06);
-}
-
-.jm-marker__count {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  min-width: 15px;
-  height: 15px;
-  padding: 0 4px;
-  border-radius: 999px;
-  background: rgb(0 0 0 / 0.06);
-  color: #6c6c70;
-  font-size: 10px;
-  font-weight: 600;
-}
-.jm-marker--on .jm-marker__count {
-  background: rgb(255 255 255 / 0.28);
-  color: #fff;
-}
-
-@media (prefers-color-scheme: dark) {
-  .jm-marker {
-    background: rgb(28 28 30 / 0.78);
-    border-color: rgb(255 255 255 / 0.14);
-    color: #f2f2f7;
-    box-shadow:
-      0 1px 2px rgb(0 0 0 / 0.4),
-      0 4px 12px rgb(0 0 0 / 0.3);
-  }
-  .jm-marker__count {
-    background: rgb(255 255 255 / 0.12);
-    color: #aeaeb2;
-  }
-}
-
-/* 투명도를 줄이라는 설정이면 재질을 불투명하게 — 블러를 걷고 배경을 채운다 */
-@media (prefers-reduced-transparency: reduce) {
-  .jm-marker {
-    background: #fff;
-    backdrop-filter: none;
-    -webkit-backdrop-filter: none;
-    border-color: #d4d4d4;
-  }
-  @media (prefers-color-scheme: dark) {
-    .jm-marker { background: #1c1c1e; }
-  }
-}
-
-/* 모션을 줄이라는 설정이면 스케일 변화를 없애고 색만 바꾼다 */
+/* 모션을 줄이라는 설정이면 눌림 반응만 남기고 움직임을 없앤다 */
 @media (prefers-reduced-motion: reduce) {
-  .jm-marker,
-  .jm-marker--on,
-  .jm-marker:active {
-    transition: background-color 0.2s ease, color 0.2s ease;
-    transform: none;
-  }
+  .jm-pin { transition: box-shadow 0.2s ease; }
 }
 
 /* 반투명 크롬 — 상단 바, 필터 바.
    불투명한 띠로 화면을 잘라먹는 대신 재질 층으로 띄우고 콘텐츠가 밑으로 흐르게 한다. */
 .jm-chrome {
-  background: rgb(255 255 255 / 0.72);
-  backdrop-filter: blur(20px) saturate(180%);
-  -webkit-backdrop-filter: blur(20px) saturate(180%);
+  background: rgb(255 255 255 / 0.88);
+  backdrop-filter: blur(28px) saturate(180%);
+  -webkit-backdrop-filter: blur(28px) saturate(180%);
 }
 @media (prefers-color-scheme: dark) {
-  .jm-chrome { background: rgb(0 0 0 / 0.68); }
+  .jm-chrome { background: rgb(0 0 0 / 0.84); }
 }
 @media (prefers-reduced-transparency: reduce) {
   .jm-chrome {
@@ -310,7 +441,7 @@ body {
    마커보다 큰 표면이므로 더 두껍게 읽혀야 한다 — 블러도 그림자도 강하게.
    지도 위에 떠 있지만 흐름을 막는 모달이 아니므로 배경을 어둡게 덮지 않는다. */
 .jm-card {
-  background: rgb(255 255 255 / 0.74);
+  background: rgb(255 255 255 / 0.94);
   backdrop-filter: blur(28px) saturate(180%);
   -webkit-backdrop-filter: blur(28px) saturate(180%);
   border: 0.5px solid rgb(255 255 255 / 0.6);
@@ -321,7 +452,7 @@ body {
 }
 @media (prefers-color-scheme: dark) {
   .jm-card {
-    background: rgb(28 28 30 / 0.72);
+    background: rgb(28 28 30 / 0.94);
     border-color: rgb(255 255 255 / 0.12);
     box-shadow:
       0 0 0 0.5px rgb(255 255 255 / 0.06),

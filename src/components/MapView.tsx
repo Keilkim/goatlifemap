@@ -1,11 +1,12 @@
 'use client'
 
-import { useEffect, useReducer, useRef } from 'react'
+import { useEffect, useRef } from 'react'
 import { MapContainer, TileLayer, Marker, useMap, useMapEvents, CircleMarker, Circle } from 'react-leaflet'
 import L from 'leaflet'
 import 'leaflet/dist/leaflet.css'
 import { getTileConfig } from '@/lib/tiles'
 import type { Store, ViewMode } from '@/lib/types'
+import MenuLabels from './MenuLabels'
 import type { Cluster } from '@/lib/cluster'
 
 // 마커는 "식당 단위"로 유지한다.
@@ -19,45 +20,6 @@ function clusterIcon(count: number) {
     html: `<div class="jm-cluster" style="width:${size}px;height:${size}px">${count}</div>`,
     iconSize: [size, size],
     iconAnchor: [size / 2, size / 2],
-  })
-}
-
-const esc = (s: string) =>
-  s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;')
-
-/**
- * 마커 라벨.
- *
- * 기존 지도는 식당명만 띄운다. 여기서는 음식과 가격을 띄운다 — "지금 이 동네에서
- * 뭘 얼마에 먹을 수 있나"가 마커만 보고 답이 나와야 하기 때문이다.
- * 가격만 띄우면 "5,000원짜리 뭔가"가 되어 결국 눌러봐야 안다.
- *
- * 가격은 반올림하지 않는다. 3,500원을 "4천"으로 올려 표시하면 실제보다 비싸 보이는데,
- * 싼 메뉴를 찾으러 온 사용자에게 그건 그냥 거짓말이다.
- */
-function priceIcon(store: Store, selected: boolean, view: ViewMode) {
-  const extra = store.menus.length - 1
-  const label =
-    view === 'menu'
-      ? // 대표 메뉴 = 가장 싼 것. 이 서비스는 싼 걸 찾으러 오는 곳이다.
-        `<span class="jm-marker__name">${esc(store.menus[0]?.name ?? store.name)}</span>
-         <span class="jm-marker__price">${(store.menus[0]?.price ?? store.cheapest).toLocaleString()}</span>`
-      : `<span class="jm-marker__name">${esc(store.name)}</span>
-         <span class="jm-marker__price">${store.cheapest.toLocaleString()}~</span>`
-
-  return L.divIcon({
-    className: '',
-    html: `
-      <div class="jm-anchor">
-        <div class="jm-marker ${selected ? 'jm-marker--on' : ''}">
-          ${label}
-          ${extra > 0 ? `<span class="jm-marker__count">+${extra}</span>` : ''}
-        </div>
-      </div>`,
-    // 라벨 길이가 제각각이라 크기를 고정하면 글자가 잘린다.
-    // 크기는 CSS가 재고, 아래 중앙 정렬은 .jm-anchor가 한다.
-    iconSize: [0, 0],
-    iconAnchor: [0, 0],
   })
 }
 
@@ -154,72 +116,18 @@ function ClusterLayer({ clusters }: { clusters: Cluster[] }) {
   )
 }
 
-/**
- * 선택된 가게의 카드를 그 포인트 위에 띄운다.
- *
- * react-leaflet의 <Popup>을 쓰지 않는 이유: 선택 상태가 바뀔 때마다 팝업이
- * 다시 열리고 닫히면서 리렌더가 무한히 돌았다. 좌표를 픽셀로 직접 바꿔
- * 절대 위치로 얹으면 생명주기 싸움이 없고 모양도 마음대로 만들 수 있다.
- *
- * 화면 하단에 폭 넓게 띄우지 않는 이유: 어느 가게 것인지 눈으로 잇지 못하고
- * 지도를 통째로 가린다. 카드는 자기 가게 위에 붙어 있어야 한다.
- */
-const CARD_W = 228
-/** StoreCard가 최대 몇 줄까지 보여주는지 — 높이 추정에 쓴다 */
-const MAX_CARD_MENUS = 5
-
-function AnchoredCard({ store, children }: { store: Store; children: React.ReactNode }) {
-  const map = useMap()
-  // 카드 위치는 지도 상태에서 바로 계산되는 값이라 상태로 둘 필요가 없다.
-  // 지도가 움직일 때 다시 그리기만 하면 된다. move는 드래그 중에도 계속 온다.
-  const [, redraw] = useReducer((n: number) => n + 1, 0)
-  useMapEvents({ move: redraw, zoom: redraw })
-
-  const pt = map.latLngToContainerPoint([store.lat, store.lng])
-  const size = map.getSize()
-
-  // 좌우: 화면 가장자리에서 카드가 잘리지 않게 안쪽으로 민다
-  const half = CARD_W / 2
-  const x = Math.min(Math.max(pt.x, half + 8), size.x - half - 8)
-
-  // 위아래: 마커 위에 띄우는 게 기본이지만, 지도 상단에 가까운 마커는 카드가
-  // 화면 밖으로 잘린다 (실제로 잘렸다). 그럴 땐 마커 아래로 뒤집는다.
-  // 높이는 실측 대신 구성으로 추정한다 — 재려면 렌더 후 상태를 바꿔야 하고
-  // 그러면 지도가 움직일 때마다 리렌더가 한 번씩 더 돈다.
-  const estHeight = 44 + Math.min(store.menus.length, MAX_CARD_MENUS) * 34
-  const flip = pt.y - 36 - estHeight < 0
-
-  return (
-    <div
-      className="pointer-events-none absolute z-[1000]"
-      style={{
-        left: x,
-        top: flip ? pt.y + 6 : pt.y - 36,
-        transform: `translate(-50%, ${flip ? '0' : '-100%'})`,
-      }}
-    >
-      {/* 아래로 뒤집히면 꼬리가 위로 간다 — 꼬리는 항상 마커를 가리켜야 한다 */}
-      {flip && (
-        <div className="jm-tail jm-tail--up mx-auto" style={{ transform: `translateX(${pt.x - x}px) rotate(45deg)` }} aria-hidden />
-      )}
-      <div className="pointer-events-auto">{children}</div>
-      {!flip && (
-        <div className="jm-tail mx-auto" style={{ transform: `translateX(${pt.x - x}px) rotate(45deg)` }} aria-hidden />
-      )}
-    </div>
-  )
-}
-
 export default function MapView({
-  stores, clusters, selectedId, onSelect, onMove, userLocation, flyTo,
-  onLocate, locating, searchedRadius, searchedCenter, renderCard, onPopupClose, view,
+  stores, clusters, selectedId, selectedMenuId, onMove, userLocation, flyTo,
+  onLocate, locating, searchedRadius, searchedCenter, onPopupClose, view,
+  onMenuTap, onStoreTap,
 }: {
   stores: Store[]
   clusters: Cluster[]
   selectedId: string | null
   /** 마커가 메뉴를 보여줄지 식당을 보여줄지 */
   view: ViewMode
-  onSelect: (id: string) => void
+  /** 지도에서 지금 강조할 메뉴 (아래 시트가 보여주는 것과 일치해야 한다) */
+  selectedMenuId: string | null
   onMove: (map: L.Map) => void
   userLocation: { lat: number; lng: number } | null
   flyTo: [number, number] | null
@@ -228,13 +136,14 @@ export default function MapView({
   /** 실제로 검색이 이뤄진 반경(m)과 그 중심. 검색 전에는 그리지 않는다. */
   searchedRadius: number
   searchedCenter: [number, number] | null
-  /** 선택된 가게의 카드. 지도가 아니라 페이지가 카드 내용을 안다. */
-  renderCard: (store: Store) => React.ReactNode
-  /** 지도 빈 곳을 누르면 카드를 닫는다 */
+  /** 지도 위 메뉴 줄을 눌렀다 → 그 메뉴의 리뷰를 하단에 */
+  onMenuTap: (store: Store, menuId: string) => void
+  /** 식당을 눌렀거나 "메뉴 N개 더"를 눌렀다 → 그 가게 전체 메뉴를 하단에 */
+  onStoreTap: (store: Store) => void
+  /** 지도 빈 곳을 누르면 하단 시트를 닫는다 */
   onPopupClose: () => void
 }) {
   const tile = getTileConfig()
-  const selectedStore = stores.find((s) => s.id === selectedId) ?? null
 
   return (
     <MapContainer
@@ -288,20 +197,18 @@ export default function MapView({
       {/* 멀리서는 개수만, 가까이서는 가격과 메뉴 */}
       <ClusterLayer clusters={clusters} />
 
-      {stores.map((s) => (
-        <Marker
-          key={s.id}
-          position={[s.lat, s.lng]}
-          icon={priceIcon(s, s.id === selectedId, view)}
-          zIndexOffset={s.id === selectedId ? 1000 : 0}
-          eventHandlers={{ click: () => onSelect(s.id) }}
-        />
-      ))}
+      {/* 라벨은 Leaflet 마커가 아니라 오버레이로 그린다.
+          겹치지 않게 자리를 잡으려면 모든 박스 위치를 한꺼번에 알아야 하는데,
+          마커는 각자 독립적으로 자기 자리에 박혀서 그걸 못 한다. */}
+      <MenuLabels
+        stores={stores}
+        view={view}
+        selectedMenuId={selectedMenuId}
+        selectedStoreId={selectedId}
+        onMenuTap={onMenuTap}
+        onStoreTap={onStoreTap}
+      />
 
-      {/* 카드는 선택된 가게 하나만. 마커 위에 붙어서 뜬다. */}
-      {selectedStore && (
-        <AnchoredCard store={selectedStore}>{renderCard(selectedStore)}</AnchoredCard>
-      )}
     </MapContainer>
   )
 }
