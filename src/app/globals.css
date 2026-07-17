@@ -69,12 +69,12 @@ body {
    재질: 지도 위에 뜨는 칩이므로 불투명 흰 덩어리가 아니라 빛을 받는 유리처럼 만든다.
    작은 표면이라 블러는 약하게, 그림자도 얕게 — 큰 표면일수록 두껍게 읽혀야 한다. */
 .jm-marker {
-  display: flex;
-  align-items: center;
-  gap: 4px;
+  display: inline-flex;
+  align-items: baseline;
+  gap: 5px;
   padding: 4px 9px;
   border-radius: 999px;
-  background: rgb(255 255 255 / 0.82);
+  background: rgb(255 255 255 / 0.9);
   backdrop-filter: blur(12px) saturate(180%);
   -webkit-backdrop-filter: blur(12px) saturate(180%);
   /* 위쪽 밝은 테두리 = 재질이 빛을 받는 느낌 */
@@ -86,10 +86,10 @@ body {
   font-weight: 600;
   /* 작은 텍스트는 자간을 살짝 벌려야 읽힌다 */
   letter-spacing: 0.01em;
-  font-variant-numeric: tabular-nums;
   color: #1c1c1e;
   white-space: nowrap;
   cursor: pointer;
+  width: max-content;
   /* 스프링처럼 읽히도록 살짝 오버슈트하는 커브. 마커는 제스처로 잡는 대상이 아니라
      탭 대상이므로 CSS transition으로 충분하다. */
   transition:
@@ -97,6 +97,32 @@ body {
     background-color 0.2s ease-out,
     box-shadow 0.32s cubic-bezier(0.34, 1.4, 0.64, 1);
   will-change: transform;
+}
+
+/* Leaflet은 마커 위치를 아이콘 요소의 transform으로 잡는다. 그래서 라벨 정렬을
+   같은 요소의 transform으로 하면 위치가 깨진다. 래퍼를 하나 둬서 분리한다.
+   라벨 길이가 제각각이라 크기를 고정할 수 없으므로, 아래 중앙을 가게 위치에 맞춘다. */
+.jm-anchor {
+  position: absolute;
+  transform: translate(-50%, -100%);
+}
+
+/* 메뉴명은 차분하게, 가격이 주인공 */
+.jm-marker__name {
+  font-weight: 500;
+  color: #3c3c43;
+  max-width: 92px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.jm-marker__price {
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+  letter-spacing: -0.01em;
+}
+.jm-marker--on .jm-marker__name {
+  color: rgb(255 255 255 / 0.85);
 }
 
 /* 반응은 누르는 순간에. 떼는 순간까지 기다리면 죽은 것처럼 느껴진다. */
@@ -368,6 +394,25 @@ body {
 }
 .jm-scroll::-webkit-scrollbar {
   display: none;
+}
+
+/* 지도 바닥을 차분하게.
+   OSM 기본 타일은 도로가 노랑/주황이고 건물도 알록달록해서, 그 위에 얹은 주황 마커가
+   배경에 묻힌다. 지도는 배경이고 주인공은 가격이어야 한다.
+   채도를 죽이고 살짝 밝혀 애플 지도 같은 바닥을 만든다 — 타일을 건드리는 게 아니라
+   렌더링만 바꾸는 것이라 OSM 정책과 무관하고 attribution도 그대로다. */
+.leaflet-tile-pane {
+  filter: saturate(0.32) contrast(0.92) brightness(1.06);
+}
+@media (prefers-color-scheme: dark) {
+  /* 다크에서는 반전시키되 색상환을 되돌려 물이 빨개지지 않게 한다 */
+  .leaflet-tile-pane {
+    filter: invert(0.92) hue-rotate(180deg) saturate(0.28) contrast(0.86) brightness(1.05);
+  }
+}
+/* 대비를 올리라는 설정이면 바닥을 흐리지 않는다 */
+@media (prefers-contrast: more) {
+  .leaflet-tile-pane { filter: none; }
 }
 
 /* Leaflet 기본 attribution이 너무 크다 */

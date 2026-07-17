@@ -3,8 +3,8 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import dynamic from 'next/dynamic'
 import type { Map as LeafletMap } from 'leaflet'
-import type { Store, MenuRow, ViewMode, Area } from '@/lib/types'
-import { distanceMeters, walkMinutes } from '@/lib/coords'
+import type { Store, ViewMode, Area } from '@/lib/types'
+import { distanceMeters } from '@/lib/coords'
 import { visibleRadius, radiusLabel } from '@/lib/geo'
 import { initAnalytics, track, DwellTimer } from '@/lib/analytics'
 import { CATEGORY_FILTERS } from '@/lib/categories'
@@ -38,8 +38,6 @@ export default function Home() {
   const [searched, setSearched] = useState<Area | null>(null)
   const [variant, setVariant] = useState<string | null>(null)
   const [points, setPoints] = useState(0)
-  const [truncated, setTruncated] = useState(false)
-  const [hasDemo, setHasDemo] = useState(false)
   const [locating, setLocating] = useState(false)
   // 마커를 눌러 카드를 띄운 가게. 목록 클릭만으로는 카드를 띄우지 않는다.
   const [cardStoreId, setCardStoreId] = useState<string | null>(null)
@@ -100,13 +98,11 @@ export default function Home() {
         const res = await fetch(`/api/stores?${p}`)
         const d: {
           mode?: string; stores: Store[]; clusters?: Cluster[]
-          truncated: boolean; storesWithoutMenus: number
+          storesWithoutMenus: number
         } = await res.json()
         setStores(d.stores ?? [])
         setClusters(d.clusters ?? [])
-        setTruncated(d.truncated)
         setEmptyAreaStores(d.storesWithoutMenus ?? 0)
-        setHasDemo((d.stores ?? []).some((s) => s.source === 'demo'))
         // 검색이 끝난 뒤에야 원을 그린다 — 아직 안 찾은 범위를 찾은 척하면 안 된다
         setSearched(area)
         setStale(null)
@@ -197,32 +193,6 @@ export default function Home() {
     [userLocation]
   )
 
-  // 같은 데이터에서 두 보기를 만든다. 메뉴보기는 가게를 메뉴 단위로 펼친 것.
-  const menuRows: MenuRow[] = useMemo(() => {
-    const rows = stores.flatMap((s) =>
-      s.menus.map((m) => ({
-        ...m,
-        storeId: s.id, storeName: s.name, category: s.category,
-        lat: s.lat, lng: s.lng,
-        distance: withDistance(s.lat, s.lng),
-      }))
-    )
-    return rows.sort((a, b) =>
-      userLocation && a.distance !== null && b.distance !== null
-        ? a.distance - b.distance
-        : a.price - b.price
-    )
-  }, [stores, withDistance, userLocation])
-
-  const storeRows = useMemo(() => {
-    const rows = stores.map((s) => ({ ...s, distance: withDistance(s.lat, s.lng) }))
-    return rows.sort((a, b) =>
-      userLocation && a.distance !== null && b.distance !== null
-        ? a.distance - b.distance
-        : a.cheapest - b.cheapest
-    )
-  }, [stores, withDistance, userLocation])
-
   // 재조회로 목록이 바뀌면 사라진 가게의 카드는 자동으로 닫힌다
   const cardStore = useMemo(
     () => stores.find((s) => s.id === cardStoreId) ?? null,
@@ -234,7 +204,9 @@ export default function Home() {
 
   const closeCard = useCallback(() => setCardStoreId(null), [])
 
-  const verify = async (menuId: string, kind: string) => {
+  // 가격 검증. 이 서비스의 생사는 "지금 그 가격이 맞나"에 달려 있으므로
+  // 목록을 없애도 검증까지 없앨 수는 없다. 카드 안에서 한 번의 탭으로 한다.
+  const verify = useCallback(async (menuId: string, kind: string) => {
     if (!userIdRef.current) return
     track('verify_click', { menuId, kind })
     const res = await fetch('/api/verify', {
@@ -245,12 +217,12 @@ export default function Home() {
     const d = await res.json()
     if (res.ok) {
       setPoints(d.points)
-      // 품절 제보 같은 건 목록에서 바로 빠져야 하므로 다시 조회한다
+      // 품절 제보는 지도에서 바로 빠져야 하므로 다시 조회한다
       if (area) fetchStores(area, maxPrice, cats)
     } else {
       alert(d.error)
     }
-  }
+  }, [fetchStores, area, maxPrice, cats])
 
   // 길찾기는 목적지만 넘기고 카카오맵에 맡긴다.
   // 출발지 좌표를 우리가 넘길 이유가 없다 — 카카오맵이 알아서 사용자 위치를 잡고,
@@ -269,287 +241,146 @@ export default function Home() {
         store={s}
         distance={withDistance(s.lat, s.lng)}
         onDirections={() => directions(s.lat, s.lng, s.name)}
+        onVerify={verify}
         onMenuClick={(menuId) => {
           const m = s.menus.find((x) => x.id === menuId)
           track('menu_card_click', { id: menuId, name: m?.name, price: m?.price, from: 'map_card' })
         }}
       />
     ),
-    [withDistance, directions]
+    [withDistance, directions, verify]
   )
 
   return (
-    <main className="flex h-dvh flex-col bg-white dark:bg-neutral-950">
-      {/* 상단 크롬은 반투명 층이다. 불투명한 띠로 화면을 잘라먹지 않는다. */}
-      <header className="jm-chrome sticky top-0 z-20 flex items-center justify-between px-4 pb-2 pt-3">
-        <div className="flex items-baseline gap-2">
-          <h1 className="t-display text-[19px] font-bold text-[#1c1c1e] dark:text-[#f2f2f7]">점심방어</h1>
-          <span className="t-caption text-[11.5px] font-medium text-[#3c3c43]/55 dark:text-[#ebebf5]/55">
-            만원 이하 점심 지도
-          </span>
-        </div>
-        {/* 현재 위치 버튼은 지도 우측 상단에 있다 */}
-        {points > 0 && (
-          <span className="t-price rounded-full bg-[#ff7a18]/12 px-2.5 py-1 text-[12px] font-semibold text-[#ff7a18]">
-            {points}P
-          </span>
-        )}
-      </header>
+    <main className="relative h-dvh overflow-hidden bg-white dark:bg-black">
+      {/* 지도가 곧 서비스다.
+          목록을 따로 두지 않는다 — 지도에 이미 음식과 가격이 다 적혀 있는데
+          아래에 같은 걸 또 나열하면 화면만 반으로 잘라먹는다. */}
+      <MapView
+        stores={stores}
+        clusters={clusters}
+        selectedId={selectedId}
+        view={view}
+        onSelect={(id) => {
+          setSelectedId(id)
+          setCardStoreId(id)
+          const s = stores.find((x) => x.id === id)
+          track('marker_click', { id, name: s?.name, view })
+        }}
+        onMove={onMove}
+        userLocation={userLocation}
+        flyTo={flyTo}
+        onLocate={locate}
+        locating={locating}
+        searchedRadius={searched?.radiusM ?? 0}
+        searchedCenter={searched ? [searched.lat, searched.lng] : null}
+        onPopupClose={closeCard}
+        renderCard={renderCard}
+      />
 
-      {hasDemo && (
-        <div className="t-caption bg-[#ff9f0a]/10 px-4 py-1.5 text-center text-[11px] font-medium text-[#b25000] dark:text-[#ffb340]">
-          데모 데이터입니다 — 실제 가게·가격이 아닙니다
+      {/* 상단 크롬 — 지도 위에 떠 있는 반투명 층. 지도를 잘라먹지 않는다. */}
+      <div className="pointer-events-none absolute inset-x-0 top-0 z-[1100]">
+        <header className="jm-chrome pointer-events-auto flex items-center justify-between px-4 pb-2 pt-3">
+          <div className="flex items-baseline gap-2">
+            <h1 className="t-display text-[19px] font-bold text-[#1c1c1e] dark:text-[#f2f2f7]">갓생맵</h1>
+            <span className="t-caption hidden text-[11.5px] font-medium text-[#3c3c43]/55 min-[380px]:inline dark:text-[#ebebf5]/55">
+              열심히 사는 이들을 위한 공간 정보
+            </span>
+          </div>
+          {points > 0 && (
+            <span className="t-price rounded-full bg-[#ff7a18]/12 px-2.5 py-1 text-[12px] font-semibold text-[#ff7a18]">
+              {points}P
+            </span>
+          )}
+        </header>
+
+        <div className="jm-chrome jm-scroll pointer-events-auto flex gap-1.5 overflow-x-auto px-4 pb-2.5 pt-0.5">
+          {PRICE_STEPS.map((p) => (
+            <button
+              key={p}
+              onClick={() => { applyFilters(p, cats); track('filter_change', { type: 'price', value: p }) }}
+              className={`jm-chip t-caption shrink-0 rounded-full px-3 py-1.5 text-[12px] font-semibold ${
+                maxPrice === p
+                  ? 'bg-[#1c1c1e] text-white dark:bg-white dark:text-[#1c1c1e]'
+                  : 'bg-black/[0.05] text-[#3c3c43]/70 dark:bg-white/[0.09] dark:text-[#ebebf5]/70'
+              }`}
+            >
+              {(p / 1000).toLocaleString()}천원 이하
+            </button>
+          ))}
+          <div className="mx-1 my-1 w-px shrink-0 bg-[#3c3c43]/12 dark:bg-[#545458]/50" />
+          {CATEGORY_FILTERS.map(({ label }) => (
+            <button
+              key={label}
+              onClick={() => {
+                const next = cats.includes(label) ? cats.filter((x) => x !== label) : [...cats, label]
+                applyFilters(maxPrice, next)
+                track('filter_change', { type: 'category', value: next })
+              }}
+              className={`jm-chip t-caption shrink-0 rounded-full px-3 py-1.5 text-[12px] font-semibold ${
+                cats.includes(label)
+                  ? 'bg-[#1c1c1e] text-white dark:bg-white dark:text-[#1c1c1e]'
+                  : 'bg-black/[0.05] text-[#3c3c43]/70 dark:bg-white/[0.09] dark:text-[#ebebf5]/70'
+              }`}
+            >
+              {label}
+            </button>
+          ))}
         </div>
+      </div>
+
+      {/* 이 지역에서 다시 찾기 — 필터 바로 아래 */}
+      {stale && !cardStore && (
+        <button
+          onClick={research}
+          className="jm-press jm-card t-caption absolute left-1/2 top-[104px] z-[1050] -translate-x-1/2 rounded-full px-4 py-2 text-[12px] font-semibold text-[#1c1c1e] dark:text-[#f2f2f7]"
+        >
+          이 지역에서 다시 찾기
+        </button>
       )}
 
-      <div className="jm-chrome jm-scroll flex gap-1.5 overflow-x-auto px-4 pb-2.5 pt-0.5">
-        {PRICE_STEPS.map((p) => (
-          <button
-            key={p}
-            onClick={() => { applyFilters(p, cats); track('filter_change', { type: 'price', value: p }) }}
-            className={`jm-chip t-caption shrink-0 rounded-full px-3 py-1.5 text-[12px] font-semibold ${
-              maxPrice === p
-                ? 'bg-[#1c1c1e] text-white dark:bg-white dark:text-[#1c1c1e]'
-                : 'bg-black/[0.05] text-[#3c3c43]/70 dark:bg-white/[0.09] dark:text-[#ebebf5]/70'
-            }`}
-          >
-            {(p / 1000).toLocaleString()}천원 이하
-          </button>
-        ))}
-        <div className="mx-1 my-1 w-px shrink-0 bg-[#3c3c43]/12 dark:bg-[#545458]/50" />
-        {CATEGORY_FILTERS.map(({ label }) => (
-          <button
-            key={label}
-            onClick={() => {
-              const next = cats.includes(label) ? cats.filter((x) => x !== label) : [...cats, label]
-              applyFilters(maxPrice, next)
-              track('filter_change', { type: 'category', value: next })
-            }}
-            className={`jm-chip t-caption shrink-0 rounded-full px-3 py-1.5 text-[12px] font-semibold ${
-              cats.includes(label)
-                ? 'bg-[#1c1c1e] text-white dark:bg-white dark:text-[#1c1c1e]'
-                : 'bg-black/[0.05] text-[#3c3c43]/70 dark:bg-white/[0.09] dark:text-[#ebebf5]/70'
-            }`}
-          >
-            {label}
-          </button>
-        ))}
-      </div>
-
-      <div className="relative h-[45vh] shrink-0">
-        <MapView
-          stores={stores}
-          clusters={clusters}
-          selectedId={selectedId}
-          onSelect={(id) => {
-            setSelectedId(id)
-            setCardStoreId(id)
-            const s = stores.find((x) => x.id === id)
-            track('marker_click', { id, name: s?.name, view })
-          }}
-          onMove={onMove}
-          userLocation={userLocation}
-          flyTo={flyTo}
-          onLocate={locate}
-          locating={locating}
-          searchedRadius={searched?.radiusM ?? 0}
-          searchedCenter={searched ? [searched.lat, searched.lng] : null}
-          onPopupClose={closeCard}
-          renderCard={renderCard}
-        />
-        {stale && !cardStore && (
-          <button
-            onClick={research}
-            className="jm-press jm-card t-caption absolute left-1/2 top-3 z-[1000] -translate-x-1/2 rounded-full px-4 py-2 text-[12px] font-semibold text-[#1c1c1e] dark:text-[#f2f2f7]"
-          >
-            이 지역에서 다시 찾기
-          </button>
+      {/* 하단 토글 — 지도 위 마커가 메뉴를 보여줄지 식당을 보여줄지 바꾼다.
+          메뉴로 보기가 왼쪽이다: 이 서비스의 주장이 "식당이 아니라 메뉴"이므로
+          먼저 오는 자리를 준다. 단 처음 선택되는 쪽은 A/B가 정한다 —
+          기본값을 한쪽으로 고정하면 그 보기 사용량이 당연히 높게 나와 니즈를 오독한다. */}
+      <div className="absolute inset-x-0 bottom-0 z-[1100] flex flex-col items-center gap-2 px-3 pb-4">
+        {searched && !isClustered && (
+          <span className="jm-card t-caption pointer-events-none rounded-full px-2.5 py-1 text-[10.5px] font-medium text-[#3c3c43]/70 dark:text-[#ebebf5]/70">
+            {radiusLabel(searched.radiusM)} · {isClustered ? `${clusterTotal.toLocaleString()}곳` : `${stores.length}곳`}
+          </span>
         )}
-
-        {/* 원이 몇 미터인지 말해주지 않으면 장식일 뿐이다 */}
-        {searched && !cardStore && !isClustered && (
-          <span className="jm-card t-caption pointer-events-none absolute bottom-2.5 left-2.5 z-[900] rounded-full px-2.5 py-1 text-[10.5px] font-medium text-[#3c3c43]/70 dark:text-[#ebebf5]/70">
-            {radiusLabel(searched.radiusM)}
+        {isClustered && (
+          <span className="jm-card t-caption pointer-events-none rounded-full px-3 py-1.5 text-[11px] font-medium text-[#3c3c43]/70 dark:text-[#ebebf5]/70">
+            확대하면 메뉴와 가격이 보여요 · 이 화면에 {clusterTotal.toLocaleString()}곳
           </span>
         )}
 
+        <div className="jm-card rounded-[12px] p-1">
+          <Segmented
+            value={view}
+            onChange={switchView}
+            options={[
+              { value: 'menu', label: '메뉴로 보기' },
+              { value: 'store', label: '식당으로 보기' },
+            ]}
+          />
+        </div>
       </div>
 
-      <div className="jm-chrome flex items-center justify-between px-4 py-2">
-        {/* 메뉴로 보기가 왼쪽이다 — 이 서비스의 주장이 "식당이 아니라 메뉴"이므로
-            먼저 오는 자리를 준다. 단 처음 선택되는 쪽은 A/B가 정한다: 기본값을
-            한쪽으로 고정하면 그 보기 사용량이 당연히 높게 나와 니즈를 오독한다. */}
-        <Segmented
-          value={view}
-          onChange={switchView}
-          options={[
-            { value: 'menu', label: '메뉴로 보기' },
-            { value: 'store', label: '식당으로 보기' },
-          ]}
-        />
-        <span className="t-caption text-[11.5px] font-medium text-[#3c3c43]/55 dark:text-[#ebebf5]/55">
-          {loading
-            ? '찾는 중…'
-            : isClustered
-              ? `${clusterTotal.toLocaleString()}곳`
-              : view === 'store'
-                ? `식당 ${storeRows.length}곳`
-                : `메뉴 ${menuRows.length}개`}
-        </span>
-      </div>
-
-      <div className="flex-1 overflow-y-auto overscroll-contain">
-        {/* 클러스터 상태에서는 목록을 채우지 않는다. 화면에 수백 곳이 걸려 있는데
-            그걸 다 나열해봐야 고를 수가 없다. 먼저 지역을 좁히라고 말해준다. */}
-        {isClustered && !loading && (
-          <div className="p-10 text-center">
-            <p className="t-body text-[14px] font-medium text-[#1c1c1e] dark:text-[#f2f2f7]">
-              지도를 확대하면 메뉴와 가격이 보여요
-            </p>
-            <p className="t-caption mt-1 text-[12px] font-medium text-[#3c3c43]/55 dark:text-[#ebebf5]/55">
-              동그라미를 누르면 그 동네로 들어가요
-              {clusterTotal > 0 && ` · 이 화면에 ${clusterTotal.toLocaleString()}곳`}
-            </p>
-          </div>
-        )}
-
-        {!isClustered && !loading && stores.length === 0 && (
-          <div className="p-10 text-center">
-            {emptyAreaStores > 0 ? (
-              <>
-                {/* 가게가 없는 게 아니라 메뉴가 아직 없는 것이다. 이걸 구분해 말해야
-                    사용자가 "고장난 앱"이 아니라 "채워지는 중인 지도"로 읽는다. */}
-                <p className="text-sm font-medium text-neutral-700 dark:text-neutral-300">
-                  이 지역 식당 {emptyAreaStores.toLocaleString()}곳의 메뉴를 아직 모으는 중이에요
-                </p>
-                <p className="mt-1 text-xs text-neutral-500">
-                  지금은 홍대·신촌부터 채우고 있어요
-                </p>
-              </>
-            ) : (
-              <>
-                <p className="text-sm font-medium text-neutral-700 dark:text-neutral-300">이 지역엔 아직 데이터가 없어요</p>
-                <p className="mt-1 text-xs text-neutral-500">홍대·신촌 쪽으로 지도를 옮겨보세요</p>
-              </>
-            )}
-          </div>
-        )}
-
-        {truncated && (
-          <p className="bg-neutral-50 px-4 py-1.5 text-center text-[11px] text-neutral-500 dark:bg-neutral-900">
-            결과가 많아 일부만 보여요. 지도를 확대해보세요
+      {/* 이 지역에 가게는 있는데 메뉴가 아직 없을 때.
+          "데이터 없음"으로 끝내면 고장난 앱처럼 보인다. */}
+      {!loading && !isClustered && stores.length === 0 && (
+        <div className="jm-card t-caption pointer-events-none absolute left-1/2 top-1/2 z-[1000] -translate-x-1/2 -translate-y-1/2 rounded-2xl px-4 py-3 text-center">
+          <p className="text-[13px] font-semibold text-[#1c1c1e] dark:text-[#f2f2f7]">
+            {emptyAreaStores > 0
+              ? `이 근처 식당 ${emptyAreaStores.toLocaleString()}곳의 메뉴를 모으는 중이에요`
+              : '이 근처엔 아직 데이터가 없어요'}
           </p>
-        )}
-
-        {view === 'store'
-          ? storeRows.map((s) => (
-              <div
-                key={s.id}
-                onClick={() => {
-                  setSelectedId(s.id)
-                  setCardStoreId(s.id)
-                  setFlyTo([s.lat, s.lng])
-                  track('store_card_click', { id: s.id, name: s.name })
-                }}
-                className={`w-full cursor-pointer px-4 py-3 text-left transition-colors ${
-                  selectedId === s.id ? 'bg-[#ff7a18]/[0.07]' : 'hover:bg-black/[0.02] dark:hover:bg-white/[0.03]'
-                }`}
-              >
-                <div className="flex items-baseline justify-between gap-2">
-                  <span className="t-title truncate text-[15px] font-semibold text-[#1c1c1e] dark:text-[#f2f2f7]">
-                    {s.name}
-                  </span>
-                  <span className="t-caption shrink-0 text-[11.5px] font-medium text-[#3c3c43]/55 dark:text-[#ebebf5]/55">
-                    {s.category}
-                    {s.distance !== null && ` · 도보 ${walkMinutes(s.distance)}분`}
-                  </span>
-                </div>
-                <p className="t-caption mt-0.5 text-[11.5px] font-medium text-[#3c3c43]/55 dark:text-[#ebebf5]/55">
-                  {maxPrice.toLocaleString()}원 이하 {s.menus.length}개 · 최저{' '}
-                  <span className="t-price font-semibold text-[#1c1c1e] dark:text-[#f2f2f7]">
-                    {s.cheapest.toLocaleString()}원
-                  </span>
-                </p>
-                <div className="mt-2 flex flex-wrap items-center gap-1.5">
-                  {s.menus.slice(0, 3).map((m) => (
-                    <span
-                      key={m.id}
-                      className="t-caption rounded-full bg-black/[0.04] px-2 py-1 text-[11px] font-medium text-[#3c3c43]/70 dark:bg-white/[0.07] dark:text-[#ebebf5]/70"
-                    >
-                      {m.name} <span className="t-price">{m.price.toLocaleString()}</span>
-                    </span>
-                  ))}
-                  <button
-                    onClick={(e) => { e.stopPropagation(); directions(s.lat, s.lng, s.name) }}
-                    className="jm-press t-caption ml-auto rounded-full bg-black/[0.05] px-2.5 py-1 text-[11px] font-medium text-[#3c3c43]/65 dark:bg-white/[0.09] dark:text-[#ebebf5]/65"
-                  >
-                    길찾기
-                  </button>
-                </div>
-              </div>
-            ))
-          : menuRows.map((m) => (
-              <div
-                key={m.id}
-                className={`px-4 py-2.5 transition-colors ${
-                  selectedId === m.storeId ? 'bg-[#ff7a18]/[0.07]' : ''
-                }`}
-              >
-                <button
-                  onClick={() => {
-                    setSelectedId(m.storeId)
-                    setCardStoreId(m.storeId)
-                    setFlyTo([m.lat, m.lng])
-                    track('menu_card_click', { id: m.id, name: m.name, price: m.price })
-                  }}
-                  className="flex w-full items-center gap-3 text-left"
-                >
-                  {m.image_url ? (
-                    // eslint-disable-next-line @next/next/no-img-element
-                    <img src={m.image_url} alt="" loading="lazy" className="size-11 shrink-0 rounded-full object-cover" />
-                  ) : (
-                    <span className="flex size-11 shrink-0 items-center justify-center rounded-full bg-black/[0.04] dark:bg-white/[0.07]" aria-hidden>
-                      <svg viewBox="0 0 24 24" className="size-3.5 text-black/20 dark:text-white/25" fill="none" stroke="currentColor" strokeWidth="2.4" strokeLinecap="round">
-                        <path d="M7 7l10 10M17 7L7 17" />
-                      </svg>
-                    </span>
-                  )}
-                  <span className="min-w-0 flex-1">
-                    <span className="t-body block truncate text-[14.5px] font-medium text-[#1c1c1e] dark:text-[#f2f2f7]">
-                      {m.name}
-                    </span>
-                    <span className="t-caption block truncate text-[11.5px] font-medium text-[#3c3c43]/55 dark:text-[#ebebf5]/55">
-                      {m.storeName}
-                      {m.distance !== null && ` · 도보 ${walkMinutes(m.distance)}분`}
-                      {` · 확인 ${daysAgo(m.verified_at)}`}
-                    </span>
-                  </span>
-                  <span className="t-price shrink-0 text-[16px] font-semibold text-[#1c1c1e] dark:text-[#f2f2f7]">
-                    {m.price.toLocaleString()}
-                    <span className="ml-0.5 text-[11px] font-medium text-[#3c3c43]/50 dark:text-[#ebebf5]/50">원</span>
-                  </span>
-                </button>
-
-                {/* 검증. 이 서비스의 생사는 가격이 맞는지에 달렸으므로 한 번의 탭으로
-                    확인해줄 수 있어야 한다. 다만 목록을 시끄럽게 만들면 안 되므로 작게 둔다. */}
-                <div className="mt-1.5 flex gap-1.5 pl-14">
-                  <button onClick={() => verify(m.id, 'price_ok')} className="jm-press t-caption rounded-full bg-black/[0.05] px-2.5 py-1 text-[11px] font-medium text-[#3c3c43]/65 dark:bg-white/[0.09] dark:text-[#ebebf5]/65">
-                    가격 맞아요 · +5P
-                  </button>
-                  <button onClick={() => verify(m.id, 'sold_out')} className="jm-press t-caption rounded-full bg-black/[0.05] px-2.5 py-1 text-[11px] font-medium text-[#3c3c43]/65 dark:bg-white/[0.09] dark:text-[#ebebf5]/65">
-                    안 팔아요 · +20P
-                  </button>
-                </div>
-              </div>
-            ))}
-      </div>
+          <p className="mt-0.5 text-[11px] font-medium text-[#3c3c43]/55 dark:text-[#ebebf5]/55">
+            지도를 옮기거나 가격 조건을 넓혀보세요
+          </p>
+        </div>
+      )}
     </main>
   )
-}
-
-function daysAgo(iso: string): string {
-  const days = Math.floor((Date.now() - new Date(iso).getTime()) / 86400000)
-  if (days <= 0) return '오늘'
-  if (days === 1) return '어제'
-  return `${days}일 전`
 }

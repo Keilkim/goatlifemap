@@ -5,7 +5,7 @@ import { MapContainer, TileLayer, Marker, useMap, useMapEvents, CircleMarker, Ci
 import L from 'leaflet'
 import 'leaflet/dist/leaflet.css'
 import { getTileConfig } from '@/lib/tiles'
-import type { Store } from '@/lib/types'
+import type { Store, ViewMode } from '@/lib/types'
 import type { Cluster } from '@/lib/cluster'
 
 // 마커는 "식당 단위"로 유지한다.
@@ -22,20 +22,42 @@ function clusterIcon(count: number) {
   })
 }
 
-function priceIcon(store: Store, selected: boolean) {
-  // 가격은 반올림하지 않는다. 3,500원을 "4천"으로 올려 표시하면 실제보다 비싸 보이는데,
-  // 싼 메뉴를 찾으러 온 사용자에게 그건 그냥 거짓말이다.
-  const price = store.cheapest.toLocaleString()
-  const count = store.menus.length
+const esc = (s: string) =>
+  s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;')
+
+/**
+ * 마커 라벨.
+ *
+ * 기존 지도는 식당명만 띄운다. 여기서는 음식과 가격을 띄운다 — "지금 이 동네에서
+ * 뭘 얼마에 먹을 수 있나"가 마커만 보고 답이 나와야 하기 때문이다.
+ * 가격만 띄우면 "5,000원짜리 뭔가"가 되어 결국 눌러봐야 안다.
+ *
+ * 가격은 반올림하지 않는다. 3,500원을 "4천"으로 올려 표시하면 실제보다 비싸 보이는데,
+ * 싼 메뉴를 찾으러 온 사용자에게 그건 그냥 거짓말이다.
+ */
+function priceIcon(store: Store, selected: boolean, view: ViewMode) {
+  const extra = store.menus.length - 1
+  const label =
+    view === 'menu'
+      ? // 대표 메뉴 = 가장 싼 것. 이 서비스는 싼 걸 찾으러 오는 곳이다.
+        `<span class="jm-marker__name">${esc(store.menus[0]?.name ?? store.name)}</span>
+         <span class="jm-marker__price">${(store.menus[0]?.price ?? store.cheapest).toLocaleString()}</span>`
+      : `<span class="jm-marker__name">${esc(store.name)}</span>
+         <span class="jm-marker__price">${store.cheapest.toLocaleString()}~</span>`
+
   return L.divIcon({
     className: '',
     html: `
-      <div class="jm-marker ${selected ? 'jm-marker--on' : ''}">
-        <span class="jm-marker__price">${price}</span>
-        ${count > 1 ? `<span class="jm-marker__count">${count}</span>` : ''}
+      <div class="jm-anchor">
+        <div class="jm-marker ${selected ? 'jm-marker--on' : ''}">
+          ${label}
+          ${extra > 0 ? `<span class="jm-marker__count">+${extra}</span>` : ''}
+        </div>
       </div>`,
-    iconSize: [64, 30],
-    iconAnchor: [32, 30],
+    // 라벨 길이가 제각각이라 크기를 고정하면 글자가 잘린다.
+    // 크기는 CSS가 재고, 아래 중앙 정렬은 .jm-anchor가 한다.
+    iconSize: [0, 0],
+    iconAnchor: [0, 0],
   })
 }
 
@@ -190,11 +212,13 @@ function AnchoredCard({ store, children }: { store: Store; children: React.React
 
 export default function MapView({
   stores, clusters, selectedId, onSelect, onMove, userLocation, flyTo,
-  onLocate, locating, searchedRadius, searchedCenter, renderCard, onPopupClose,
+  onLocate, locating, searchedRadius, searchedCenter, renderCard, onPopupClose, view,
 }: {
   stores: Store[]
   clusters: Cluster[]
   selectedId: string | null
+  /** 마커가 메뉴를 보여줄지 식당을 보여줄지 */
+  view: ViewMode
   onSelect: (id: string) => void
   onMove: (map: L.Map) => void
   userLocation: { lat: number; lng: number } | null
@@ -268,7 +292,7 @@ export default function MapView({
         <Marker
           key={s.id}
           position={[s.lat, s.lng]}
-          icon={priceIcon(s, s.id === selectedId)}
+          icon={priceIcon(s, s.id === selectedId, view)}
           zIndexOffset={s.id === selectedId ? 1000 : 0}
           eventHandlers={{ click: () => onSelect(s.id) }}
         />

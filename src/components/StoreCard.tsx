@@ -1,9 +1,18 @@
 'use client'
 
-import { useEffect, useRef } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { animate } from 'motion'
 import type { Store } from '@/lib/types'
 import { walkMinutes } from '@/lib/coords'
+
+/** 가격 확인일. 이 서비스는 "지금 그 가격이 맞나"가 전부라 확인일이 곧 신뢰도다. */
+function daysAgo(iso: string): string {
+  const days = Math.floor((Date.now() - new Date(iso).getTime()) / 86400000)
+  if (days <= 0) return '오늘'
+  if (days === 1) return '어제'
+  if (days < 30) return `${days}일 전`
+  return `${Math.floor(days / 30)}달 전`
+}
 
 // 마커를 누르면 지도 위에 뜨는 플로팅 카드.
 // 한 가게를 묶어서 보여주고, 그 안에 메뉴를 최대 5개까지 편다.
@@ -42,16 +51,19 @@ function WalkIcon() {
 // 닫기 버튼이 없는 이유: Leaflet 팝업이라 지도 아무 데나 누르면 닫힌다.
 // 좁은 카드에 X를 넣으면 길찾기 버튼과 자리를 다투기만 한다.
 export default function StoreCard({
-  store, distance, onDirections, onMenuClick,
+  store, distance, onDirections, onVerify, onMenuClick,
 }: {
   store: Store
   distance: number | null
   onDirections: () => void
+  onVerify: (menuId: string, kind: string) => void
   onMenuClick: (menuId: string) => void
 }) {
   const menus = store.menus.slice(0, MAX_MENUS)
   const hidden = store.menus.length - menus.length
   const ref = useRef<HTMLDivElement>(null)
+  // 검증 버튼을 줄마다 항상 띄우면 카드가 시끄럽다. 누른 메뉴만 펼친다.
+  const [openId, setOpenId] = useState<string | null>(null)
 
   // 유리 표면은 그냥 페이드인하면 안 된다. 블러와 스케일을 같이 올려야
   // "진짜 재질이 도착하는" 것처럼 읽힌다.
@@ -115,7 +127,10 @@ export default function StoreCard({
         {menus.map((m) => (
           <li key={m.id}>
             <button
-              onClick={() => onMenuClick(m.id)}
+              onClick={() => {
+                setOpenId(openId === m.id ? null : m.id)
+                onMenuClick(m.id)
+              }}
               className="flex w-full items-center gap-2 rounded-[12px] px-1.5 py-1 text-left transition-colors hover:bg-black/[0.03] dark:hover:bg-white/[0.05]"
             >
               {m.image_url ? (
@@ -134,7 +149,30 @@ export default function StoreCard({
                   <span className="ml-px text-[9.5px] font-medium text-[#3c3c43]/50 dark:text-[#ebebf5]/50">원</span>
                 </span>
               </span>
+
+              <span className="t-caption shrink-0 pr-1 text-[9.5px] font-medium text-[#3c3c43]/40 dark:text-[#ebebf5]/40">
+                {daysAgo(m.verified_at)}
+              </span>
             </button>
+
+            {/* 검증. 이 서비스의 생사는 "지금 그 가격이 맞나"에 달려 있다.
+                다만 줄마다 항상 띄우면 카드가 시끄러우므로 누른 메뉴만 편다. */}
+            {openId === m.id && (
+              <div className="flex gap-1 px-1.5 pb-1.5 pl-11">
+                <button
+                  onClick={() => { onVerify(m.id, 'price_ok'); setOpenId(null) }}
+                  className="jm-press t-caption rounded-full bg-black/[0.05] px-2 py-1 text-[10px] font-medium text-[#3c3c43]/70 dark:bg-white/[0.09] dark:text-[#ebebf5]/70"
+                >
+                  가격 맞아요 +5P
+                </button>
+                <button
+                  onClick={() => { onVerify(m.id, 'sold_out'); setOpenId(null) }}
+                  className="jm-press t-caption rounded-full bg-black/[0.05] px-2 py-1 text-[10px] font-medium text-[#3c3c43]/70 dark:bg-white/[0.09] dark:text-[#ebebf5]/70"
+                >
+                  안 팔아요 +20P
+                </button>
+              </div>
+            )}
           </li>
         ))}
       </ul>
