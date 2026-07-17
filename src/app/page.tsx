@@ -6,6 +6,7 @@ import type { LatLngBounds } from 'leaflet'
 import type { Store, MenuRow, ViewMode } from '@/lib/types'
 import { distanceMeters, walkMinutes } from '@/lib/coords'
 import { initAnalytics, track, DwellTimer } from '@/lib/analytics'
+import { CATEGORY_FILTERS } from '@/lib/categories'
 
 // Leaflet은 window를 직접 만지므로 서버에서 렌더하면 터진다.
 const MapView = dynamic(() => import('@/components/MapView'), {
@@ -14,7 +15,6 @@ const MapView = dynamic(() => import('@/components/MapView'), {
 })
 
 const PRICE_STEPS = [5000, 7000, 10000] as const
-const CATEGORIES = ['한식', '중식', '일식', '분식', '경양식'] as const
 
 export default function Home() {
   const [stores, setStores] = useState<Store[]>([])
@@ -31,6 +31,8 @@ export default function Home() {
   const [points, setPoints] = useState(0)
   const [truncated, setTruncated] = useState(false)
   const [hasDemo, setHasDemo] = useState(false)
+  // 결과가 0일 때, 이 지역에 가게 자체는 몇 곳 있는지 (메뉴만 아직 없음)
+  const [emptyAreaStores, setEmptyAreaStores] = useState(0)
 
   const dwell = useRef<DwellTimer | null>(null)
   const userIdRef = useRef<string | null>(null)
@@ -79,9 +81,10 @@ export default function Home() {
     categories.forEach((c) => p.append('category', c))
     try {
       const res = await fetch(`/api/stores?${p}`)
-      const d: { stores: Store[]; truncated: boolean } = await res.json()
+      const d: { stores: Store[]; truncated: boolean; storesWithoutMenus: number } = await res.json()
       setStores(d.stores ?? [])
       setTruncated(d.truncated)
+      setEmptyAreaStores(d.storesWithoutMenus ?? 0)
       setHasDemo((d.stores ?? []).some((s) => s.source === 'demo'))
       setStaleBounds(null)
     } finally {
@@ -233,21 +236,21 @@ export default function Home() {
           </button>
         ))}
         <div className="mx-1 w-px shrink-0 bg-neutral-200 dark:bg-neutral-700" />
-        {CATEGORIES.map((c) => (
+        {CATEGORY_FILTERS.map(({ label }) => (
           <button
-            key={c}
+            key={label}
             onClick={() => {
-              const next = cats.includes(c) ? cats.filter((x) => x !== c) : [...cats, c]
+              const next = cats.includes(label) ? cats.filter((x) => x !== label) : [...cats, label]
               applyFilters(maxPrice, next)
               track('filter_change', { type: 'category', value: next })
             }}
             className={`shrink-0 rounded-full px-3 py-1 text-xs font-medium transition ${
-              cats.includes(c)
+              cats.includes(label)
                 ? 'bg-neutral-900 text-white dark:bg-white dark:text-neutral-900'
                 : 'bg-neutral-100 text-neutral-600 hover:bg-neutral-200 dark:bg-neutral-800 dark:text-neutral-400'
             }`}
           >
-            {c}
+            {label}
           </button>
         ))}
       </div>
@@ -299,8 +302,23 @@ export default function Home() {
       <div className="flex-1 overflow-y-auto overscroll-contain">
         {!loading && stores.length === 0 && (
           <div className="p-10 text-center">
-            <p className="text-sm font-medium text-neutral-700 dark:text-neutral-300">이 지역엔 아직 데이터가 없어요</p>
-            <p className="mt-1 text-xs text-neutral-500">홍대·신촌 쪽으로 지도를 옮겨보세요</p>
+            {emptyAreaStores > 0 ? (
+              <>
+                {/* 가게가 없는 게 아니라 메뉴가 아직 없는 것이다. 이걸 구분해 말해야
+                    사용자가 "고장난 앱"이 아니라 "채워지는 중인 지도"로 읽는다. */}
+                <p className="text-sm font-medium text-neutral-700 dark:text-neutral-300">
+                  이 지역 식당 {emptyAreaStores.toLocaleString()}곳의 메뉴를 아직 모으는 중이에요
+                </p>
+                <p className="mt-1 text-xs text-neutral-500">
+                  지금은 홍대·신촌부터 채우고 있어요
+                </p>
+              </>
+            ) : (
+              <>
+                <p className="text-sm font-medium text-neutral-700 dark:text-neutral-300">이 지역엔 아직 데이터가 없어요</p>
+                <p className="mt-1 text-xs text-neutral-500">홍대·신촌 쪽으로 지도를 옮겨보세요</p>
+              </>
+            )}
           </div>
         )}
 
