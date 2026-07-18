@@ -128,7 +128,12 @@ async function post(path, body, isForm = false) {
   return res.json()
 }
 
-const sql = postgres(DB, { max: 4 })
+const isPooler = /pooler\.supabase\.com|:6543/.test(DB)
+const sql = postgres(DB, {
+  max: 4,
+  ssl: /supabase/.test(DB) ? 'require' : false, // Supabase 풀러는 SSL 필수(없으면 인증 거부)
+  prepare: !isPooler,                            // 트랜잭션 풀러(6543)는 prepared statement 미지원
+})
 
 function messageOf(error) {
   return error instanceof Error ? error.message : String(error)

@@ -41,6 +41,9 @@ yarn-error.log*
 # claude code — 기기별 로컬 설정(스킬은 공유하지만 이 파일은 로컬 전용)
 .claude/settings.local.json
 
+# supabase CLI 임시 폴더
+supabase/.temp/
+
 # typescript
 *.tsbuildinfo
 next-env.d.ts

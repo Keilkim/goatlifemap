@@ -79,7 +79,7 @@ Actions 탭에서 **수동 실행(Run workflow)**도 된다.
 설정:
 1. 레포를 GitHub에 push (아직 원격이 없으면 `git remote add origin …` 후 push). Actions는 push된 레포에서만 돈다.
 2. Repo → **Settings → Secrets and variables → Actions**에 시크릿 추가:
-   - `DATABASE_URL_DIRECT` = Supabase **직접 연결**(5432, `db.[ref].supabase.co`). ⚠️ 풀러(6543) 아님 — 배치는 임시테이블·advisory lock을 써서 직접 연결이 맞다.
+   - `DATABASE_URL_DIRECT` = Supabase **Session pooler**(5432, `...pooler.supabase.com`) 문자열. ⚠️ 이름은 DIRECT지만 진짜 "직접 연결"(`db.[ref].supabase.co`)은 **IPv6 전용**이라 GitHub 러너(IPv4)에서 DNS가 안 잡힌다. Session pooler가 IPv4 + 세션모드라 배치에 맞다(Transaction 풀러 6543도 되지만 Session 권장). 수집기는 `pooler`/`supabase`를 감지해 SSL·prepare를 자동으로 맞춘다.
    - `SEOUL_API_KEY` = 서울 열린데이터광장 인증키(seoul 워크플로용).
 3. 첫 실행은 Actions 탭에서 수동(Run workflow)으로 돌려 결과를 확인한 뒤 스케줄에 맡긴다.
 

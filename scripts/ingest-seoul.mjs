@@ -64,7 +64,12 @@ if (!targets.length) {
 }
 
 const PAGE = 1000 // 실제 키의 1회 최대 건수
-const sql = postgres(DB, { max: 4 })
+const isPooler = /pooler\.supabase\.com|:6543/.test(DB)
+const sql = postgres(DB, {
+  max: 4,
+  ssl: /supabase/.test(DB) ? 'require' : false, // Supabase 풀러는 SSL 필수(없으면 인증 거부)
+  prepare: !isPooler,                            // 트랜잭션 풀러(6543)는 prepared statement 미지원
+})
 
 function convert(xRaw, yRaw) {
   const x = parseFloat(xRaw), y = parseFloat(yRaw)
