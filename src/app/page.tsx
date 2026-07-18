@@ -226,10 +226,24 @@ export default function Home() {
 
   // 길찾기 → 앱 안 라이트박스로 카카오맵을 띄운다(새 탭이 아니라).
   // 출발지=내 위치 자동 잡기와 폴백은 라이트박스가 처리한다. 여기선 목적지만 넘긴다.
+  //
+  // 단, 모바일(터치)에선 카카오 링크가 앱링크(applink.map.kakao.com)로 리다이렉트되고
+  // 그 페이지가 X-Frame-Options: SAMEORIGIN이라 우리 iframe에 못 박힌다 → 빈 팝업이 된다.
+  // 그래서 모바일은 라이트박스 대신 카카오맵을 바로 연다(앱 설치 시 앱, 아니면 모바일웹으로
+  // 길안내). 데스크탑은 웹지도로 리다이렉트돼 iframe이 정상 동작하므로 라이트박스를 쓴다.
   const directions = useCallback((lat: number, lng: number, name: string) => {
     track('directions_click', { name, view })
+    const coarse = typeof window !== 'undefined' && window.matchMedia('(pointer: coarse)').matches
+    if (coarse) {
+      const to = `${encodeURIComponent(name)},${lat},${lng}`
+      const url = userLocation
+        ? `https://map.kakao.com/link/from/${encodeURIComponent('내 위치')},${userLocation.lat},${userLocation.lng}/to/${to}`
+        : `https://map.kakao.com/link/to/${to}`
+      window.open(url, '_blank', 'noopener,noreferrer')
+      return
+    }
     setDirDest({ lat, lng, name })
-  }, [view])
+  }, [view, userLocation])
 
   // 지도 위 메뉴를 바로 눌렀다 → 그 메뉴의 리뷰. 전체 메뉴를 거치지 않았으므로 뒤로가기가 없다.
   const openReviewFromMap = useCallback((store: Store, menuId: string) => {

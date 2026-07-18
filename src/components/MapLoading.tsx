@@ -17,9 +17,8 @@ const ICONS = [
 export default function MapLoading() {
   return (
     <div className="jm-loading pointer-events-none absolute inset-0 z-[1050] grid place-items-center">
-      {/* 배경을 살짝 가려 로딩 중임을 알린다 */}
-      <div className="absolute inset-0 bg-white/25 backdrop-blur-[1.5px] dark:bg-black/30" />
-      <div className="jm-card relative flex items-end gap-1.5 rounded-full px-4 py-3">
+      {/* 딤 배경·카드 없이 아이콘만 통통 */}
+      <div className="flex items-end gap-1.5">
         {ICONS.map((src, i) => (
           // eslint-disable-next-line @next/next/no-img-element
           <img
