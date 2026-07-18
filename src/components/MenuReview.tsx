@@ -28,7 +28,7 @@ type Review = {
   created_at: string
 }
 
-type VerificationKind = 'price_ok' | 'price_changed' | 'discontinued'
+type VerificationKind = 'store_gone' | 'price_changed' | 'discontinued'
 
 /** 길찾기 — 사람이 걸어가는 모양. MenuList의 것과 같은 아이콘. */
 function WalkIcon() {
@@ -65,7 +65,7 @@ export default function MenuReview({
   const [reportedKind, setReportedKind] = useState<VerificationKind | null>(null)
   const [submittingKind, setSubmittingKind] = useState<VerificationKind | null>(null)
 
-  const submitVerification = async (kind: 'price_ok' | 'discontinued') => {
+  const submitVerification = async (kind: 'store_gone' | 'discontinued') => {
     setSubmittingKind(kind)
     try {
       const ok = await onVerify(menu.id, kind)
@@ -164,9 +164,7 @@ export default function MenuReview({
           운영자 승인 대기열로 보낸다. 서버가 접수에 성공한 경우에만 완료 상태를 보여준다. */}
       {reportedKind ? (
         <p className="t-caption mt-3 rounded-xl bg-black/[0.03] py-2.5 text-center text-[12px] font-semibold text-[#3c3c43]/60 dark:bg-white/[0.05] dark:text-[#ebebf5]/60">
-          {reportedKind === 'price_ok'
-            ? '접수됐어요 · 운영자 확인 후 +5P 지급돼요'
-            : '접수됐어요 · 운영자 확인 후 반영·지급돼요'}
+          접수됐어요 · 운영자 확인 후 반영·지급돼요
         </p>
       ) : changing ? (
         <div className="mt-3 flex gap-1.5">
@@ -198,11 +196,11 @@ export default function MenuReview({
         <div className="mt-3 space-y-1.5">
           <div className="flex gap-1.5">
             <button
-              onClick={() => void submitVerification('price_ok')}
+              onClick={() => void submitVerification('store_gone')}
               disabled={submittingKind !== null}
               className="jm-press t-caption flex-1 rounded-xl bg-black/[0.05] py-2.5 text-[12px] font-semibold text-[#3c3c43]/75 disabled:opacity-60 dark:bg-white/[0.09] dark:text-[#ebebf5]/75"
             >
-              {submittingKind === 'price_ok' ? '접수 중…' : '가격 맞아요 · +5P'}
+              {submittingKind === 'store_gone' ? '접수 중…' : '가게가 없어요 · +20P'}
             </button>
             <button
               onClick={() => void submitVerification('discontinued')}

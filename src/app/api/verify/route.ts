@@ -6,16 +6,15 @@ import { clientIp, rateLimit } from '@/lib/ratelimit'
 // 메뉴 검증 제보 + 포인트 적립.
 //
 // 제보가 지도에 바로 반영되지는 않는다. 허위·장난 제보가 그대로 들이치면 안 되므로,
-// 가격 변경·단종뿐 아니라 "가격 맞아요"도 pending으로 쌓이고 운영자가 /admin에서
-// 최종 확인해야 반영·지급된다. 제출만으로 verified_at과 포인트를 올리면 UUID를 바꿔
+// 가격 변경·메뉴 단종·가게 폐업 제보 모두 pending으로 쌓이고 운영자가 /admin에서
+// 최종 확인해야 반영·지급된다. 제출만으로 포인트를 올리면 UUID를 바꿔
 // 신뢰도와 포인트를 동시에 부풀릴 수 있기 때문이다.
 //
 // 포인트는 클라이언트가 보내는 값을 절대 믿지 않고 서버가 정한 표에 따라서만 준다.
 // 하루 1회 제한은 DB의 unique 인덱스(menu_verifications_daily_unique)가 강제하므로
 // 이 라우트를 우회해도 뚫리지 않는다.
 const POINTS: Record<string, number> = {
-  price_ok: 5,
-  still_selling: 5,
+  store_gone: 20,
   discontinued: 20,
   price_changed: 20,
 }

@@ -334,6 +334,8 @@ function ReportsPanel({ reports, act }: { reports: Report[]; act: Act }) {
               </p>
             ) : r.kind === 'discontinued' || r.kind === 'sold_out' ? (
               <span className="t-caption rounded-full bg-black/[0.05] px-2 py-0.5 text-[11px] font-semibold text-[#3c3c43]/65 dark:bg-white/[0.09] dark:text-[#ebebf5]/65">단종 요청</span>
+            ) : r.kind === 'store_gone' ? (
+              <span className="t-caption rounded-full bg-[#ff3b30]/12 px-2 py-0.5 text-[11px] font-semibold text-[#c9241a] dark:text-[#ff453a]">가게 폐업 요청</span>
             ) : (
               <span className="t-caption rounded-full bg-[#34c759]/12 px-2 py-0.5 text-[11px] font-semibold text-[#248a3d] dark:text-[#30d158]">
                 {r.kind === 'price_ok' ? '가격 맞음 확인' : '계속 판매 확인'}
@@ -474,6 +476,7 @@ function PointsPanel({ entries }: { entries: PointEntry[] }) {
   const LABEL: Record<string, string> = {
     opening_balance: '기존 잔액 이관',
     review_approved: '리뷰 승인',
+    'verification:store_gone': '가게 폐업 제보',
     'verification:price_ok': '가격 확인',
     'verification:still_selling': '판매 확인',
     'verification:price_changed': '가격 변경 제보',

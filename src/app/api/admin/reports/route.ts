@@ -5,6 +5,7 @@ import { isValidUserId } from '@/lib/user'
 
 // 승인 시 제보자에게 주는 포인트. 제출 즉시가 아니라 여기(운영자 확인 후)서만 지급된다.
 const POINTS: Record<string, number> = {
+  store_gone: 20,
   price_ok: 5,
   still_selling: 5,
   price_changed: 20,
@@ -101,6 +102,14 @@ export async function POST(req: NextRequest) {
     } else if (v.kind === 'discontinued' || v.kind === 'sold_out') {
       // 단종 — 메뉴를 내린다. 삭제가 아니라 숨김이라 오판이면 되돌릴 수 있다.
       await tx`update menus set is_available = false, updated_at = now() where id = ${v.menu_id}`
+    } else if (v.kind === 'store_gone') {
+      // 가게 폐업 — 가게를 내린다(is_open=false). 지도 API가 is_open인 가게만 노출하므로
+      // 지도에서 사라진다. 삭제가 아니라 숨김이라 오판이면 되돌릴 수 있고, audit 트리거가
+      // store_closed 이벤트를 남긴다.
+      await tx`
+        update stores set is_open = false, updated_at = now()
+        where id = (select store_id from menus where id = ${v.menu_id})
+      `
     } else if (v.kind === 'price_ok') {
       await tx`update menus set verified_at = now(), updated_at = now() where id = ${v.menu_id}`
     } else if (v.kind === 'still_selling') {
