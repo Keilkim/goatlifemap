@@ -234,7 +234,8 @@ export default function Home() {
   const directions = useCallback((lat: number, lng: number, name: string) => {
     track('directions_click', { name, view })
     const coarse = typeof window !== 'undefined' && window.matchMedia('(pointer: coarse)').matches
-    if (coarse) {
+    // 모바일 + 카카오 JS 키 없음 → 카카오 바로 열기(폴백). 키가 있으면 라이트박스가 카카오 SDK 지도로 띄운다.
+    if (coarse && !process.env.NEXT_PUBLIC_KAKAO_JS_KEY) {
       const to = `${encodeURIComponent(name)},${lat},${lng}`
       const url = userLocation
         ? `https://map.kakao.com/link/from/${encodeURIComponent('내 위치')},${userLocation.lat},${userLocation.lng}/to/${to}`
