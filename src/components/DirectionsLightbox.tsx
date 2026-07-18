@@ -9,12 +9,11 @@ import KakaoDirectionsMap from './KakaoDirectionsMap'
 // 길찾기 라이트박스 — 앱을 벗어나지 않게 앱 안 팝업으로 띄운다.
 //
 //   · 데스크탑: 카카오 웹지도를 iframe으로 띄운다.
-//   · 모바일: 카카오가 iframe을 막으므로(applink X-Frame-Options), Kakao Maps JS SDK로
-//     카카오 지도를 우리 DOM에 직접 렌더한다(안 막힘). 지도·타일·위치기반서비스는 카카오 제공.
-//     실제 턴바이턴은 아래 '카카오맵으로 길찾기' 버튼이 카카오 앱을 열어 처리한다.
+//   · 모바일: 카카오가 iframe을 막으므로, Kakao Maps JS SDK로 카카오 지도를 우리 DOM에 직접
+//     렌더한다. 지도·타일·위치기반서비스는 카카오 제공.
 //
-// (모바일에 NEXT_PUBLIC_KAKAO_JS_KEY가 없으면 page.tsx가 라이트박스를 열지 않고 카카오를
-//  바로 연다 — 이 컴포넌트의 모바일 분기는 키가 있을 때만 도달한다.)
+// 팝업을 열면 내 위치를 자동으로 1회 잡아 '도보 약 N분'(직선 추정)과 내 위치 마커를 바로 보여준다.
+// 정확한 경로/시간은 아래 '카카오맵으로 길찾기' 버튼이 카카오 앱을 열어 처리한다.
 
 type Dest = { lat: number; lng: number; name: string }
 type LatLng = { lat: number; lng: number }
@@ -45,12 +44,14 @@ export default function DirectionsLightbox({
   dest: Dest
   userLocation: LatLng | null
   onClose: () => void
-  /** 여기(데스크탑)서 처음 잡은 내 위치를 부모에 알려 다음부터 바로 쓰게 한다. */
+  /** 여기서 처음 잡은 내 위치를 부모에 알려 다음부터 바로 쓰게 한다. */
   onLocated: (loc: LatLng) => void
 }) {
   // 모바일(터치)이면 카카오 SDK 지도, 아니면 카카오 iframe.
   const [coarse] = useState(() => typeof window !== 'undefined' && window.matchMedia('(pointer: coarse)').matches)
   const [url, setUrl] = useState<string | null>(userLocation ? routeUrl(dest, userLocation) : null)
+  const [myLoc, setMyLoc] = useState<LatLng | null>(userLocation)
+  const [locating, setLocating] = useState(false)
   const panelRef = useRef<HTMLDivElement>(null)
 
   // 슬라이드 인 — 하단이면 아래에서, 우측 패널이면 옆에서
@@ -61,13 +62,13 @@ export default function DirectionsLightbox({
     }
   }, [])
 
-  // 데스크탑 iframe의 출발지를 채우려고 내 위치를 1회 조회한다. 모바일은 이미 아는 위치만
-  // 쓰고 여기서 따로 조회하지 않는다(카카오 버튼이 현재 위치를 잡음).
-  // 조회는 진입 애니메이션이 끝난 뒤로 미룬다 — 권한 프롬프트가 rAF를 멈춰 진입 애니메이션을
-  // 얼려버리기 때문.
+  // 내 위치를 모르면 자동으로 1회 조회 — 도보 시간·내 위치 마커·출발지를 채운다.
+  // 조회는 진입 애니메이션이 끝난 뒤로 미룬다(권한 프롬프트가 rAF를 멈춰 진입 애니메이션을
+  // 얼려버리기 때문).
   useEffect(() => {
-    if (coarse || userLocation || !navigator.geolocation) return
+    if (myLoc || !navigator.geolocation) return
     let alive = true
+    setLocating(true)
     const reduced = window.matchMedia('(prefers-reduced-motion: reduce)').matches
     const timer = setTimeout(() => {
       if (!alive) return
@@ -75,18 +76,20 @@ export default function DirectionsLightbox({
         (pos) => {
           if (!alive) return
           const loc = { lat: pos.coords.latitude, lng: pos.coords.longitude }
+          setMyLoc(loc)
           onLocated(loc)
           setUrl(routeUrl(dest, loc))
+          setLocating(false)
         },
-        () => { if (alive) setUrl(routeUrl(dest, null)) },
-        { enableHighAccuracy: true, timeout: 6000, maximumAge: 60000 }
+        () => { if (alive) { setUrl(routeUrl(dest, null)); setLocating(false) } },
+        { enableHighAccuracy: false, timeout: 6000, maximumAge: 120000 }
       )
     }, reduced ? 0 : 460)
     return () => { alive = false; clearTimeout(timer) }
-  }, [coarse, dest, userLocation, onLocated])
+  }, [myLoc, dest, onLocated])
 
-  const openUrl = url ?? routeUrl(dest, userLocation)
-  const walkM = userLocation ? distanceMeters(userLocation, dest) : null
+  const openUrl = url ?? routeUrl(dest, myLoc)
+  const walkM = myLoc ? distanceMeters(myLoc, dest) : null
 
   return (
     <>
@@ -126,17 +129,24 @@ export default function DirectionsLightbox({
         </div>
 
         {coarse ? (
-          /* 모바일 — 카카오 SDK 지도 + 실제 안내 버튼 */
+          /* 모바일 — 카카오 SDK 지도 + 도보시간 + 실제 안내 버튼 */
           <>
             <div className="relative flex-1 overflow-hidden">
-              <KakaoDirectionsMap dest={dest} origin={userLocation} />
+              <KakaoDirectionsMap dest={dest} origin={myLoc} />
             </div>
             <div className="flex flex-col gap-2 px-3 pb-3 pt-2">
-              {walkM != null && (
-                <p className="t-caption text-center text-[12px] font-medium text-[#3c3c43]/55 dark:text-[#ebebf5]/55">
-                  내 위치에서 직선 {distanceLabel(walkM)} · 도보 약 {walkMinutes(walkM)}분
-                </p>
-              )}
+              <p className="t-caption text-center text-[12.5px] font-medium text-[#3c3c43]/60 dark:text-[#ebebf5]/60">
+                {walkM != null ? (
+                  <>
+                    <span className="font-bold text-[#1c1c1e] dark:text-[#f2f2f7]">도보 약 {walkMinutes(walkM)}분</span>
+                    <span className="text-[#3c3c43]/45 dark:text-[#ebebf5]/45"> · 직선 {distanceLabel(walkM)}</span>
+                  </>
+                ) : locating ? (
+                  '도보 시간 계산 중…'
+                ) : (
+                  '위치를 켜면 도보 시간이 표시돼요'
+                )}
+              </p>
               <a
                 href={openUrl}
                 target="_blank"
