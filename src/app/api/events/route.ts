@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server'
 import postgres from 'postgres'
 import { sql } from '@/lib/db'
 import { ensureUser, isValidUserId } from '@/lib/user'
+import { clientIp, rateLimit } from '@/lib/ratelimit'
 
 // 행동 로그 수집.
 // 토글 클릭 수만으로는 니즈를 알 수 없다. 각 보기에서 길찾기/상세까지
@@ -21,6 +22,11 @@ const ALLOWED = new Set([
 ])
 
 export async function POST(req: NextRequest) {
+  // IP 레이트리밋 — 익명 이벤트도 UUID 회전으로 무제한 삽입돼 A/B 데이터를 오염시킨다.
+  if (!(await rateLimit('events', clientIp(req), 60, 60))) {
+    return NextResponse.json({ error: '잠시 후 다시 시도해주세요' }, { status: 429 })
+  }
+
   let body: { userId?: string; sessionId?: string; events?: { name: string; props?: unknown }[] }
   try {
     body = await req.json()
@@ -34,10 +40,13 @@ export async function POST(req: NextRequest) {
   // sendBeacon으로 한 번에 몰아 보내므로 배치 상한을 둔다
   if (events.length > 50) return NextResponse.json({ error: 'too many events' }, { status: 400 })
 
-  await ensureUser(userId)
+  // 차단된 기기는 로그도 못 남긴다(오염 방지). 예전엔 blocked를 무시했다.
+  const { blocked } = await ensureUser(userId)
+  if (blocked) return NextResponse.json({ error: '차단된 기기입니다' }, { status: 403 })
 
   const rows = events
-    .filter((e) => ALLOWED.has(e.name))
+    // 허용된 이벤트 + props 직렬화 크기 상한(2KB) — 검증 없는 jsonb 폭탄 방지.
+    .filter((e) => ALLOWED.has(e.name) && JSON.stringify(e.props ?? {}).length <= 2000)
     .map((e) => ({
       user_id: userId,
       session_id: isValidUserId(sessionId) ? sessionId : null,

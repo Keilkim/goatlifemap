@@ -2,10 +2,13 @@ import { sql } from '@/lib/db'
 
 // 익명 사용자 식별.
 //
-// 지금: 브라우저가 만든 device UUID를 app_users.id로 그대로 쓴다.
-// 나중: Supabase Anonymous Sign-in(signInAnonymously)으로 갈아탄다.
-//   Supabase 익명 사용자도 auth.users에 저장되고 auth.uid()가 정상 동작하므로,
-//   user_id 컬럼 구조와 아래 함수 시그니처는 그대로 두고 내부만 바뀐다.
+// 가입이 없는 서비스라 실계정(Supabase Auth)은 두지 않는다. 브라우저가 만든
+// device UUID를 app_users.id로 그대로 쓴다. 어뷰징 방어는 기기 차단 + flag +
+// 규칙/LLM 검열 + 레이트리밋으로 한다(user.ts는 신원, moderation.ts는 방어).
+//
+// 트레이드오프: localStorage를 지우면 새 기기가 되어 차단을 우회한다. 실제 도배가
+// 문제되면 그때 IP 레이트리밋이나 실계정으로 올린다 — 지금 단계엔 과하다.
+// 그때 갈아타더라도 user_id 컬럼과 아래 시그니처는 그대로 두고 내부만 바꾸면 된다.
 
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
 
@@ -13,14 +16,18 @@ export function isValidUserId(id: string | null | undefined): id is string {
   return !!id && UUID_RE.test(id)
 }
 
-/** device UUID로 사용자를 찾거나 만든다. 없는 id를 보내와도 안전하게 생성한다. */
-export async function ensureUser(deviceId: string): Promise<string> {
-  const [row] = await sql<{ id: string }[]>`
+/**
+ * device UUID로 사용자를 찾거나 만든다. 없는 id를 보내와도 안전하게 생성한다.
+ * blocked: 운영자가 차단한 기기인지. 라우트는 이 값으로 제보·리뷰를 거부한다.
+ * points: 이 브라우저 기기에 누적된 현재 포인트.
+ */
+export async function ensureUser(deviceId: string): Promise<{ id: string; blocked: boolean; points: number }> {
+  const [row] = await sql<{ id: string; blocked_at: string | null; points: number }[]>`
     insert into app_users (id) values (${deviceId})
     on conflict (id) do update set id = excluded.id
-    returning id
+    returning id, blocked_at, points
   `
-  return row.id
+  return { id: row.id, blocked: row.blocked_at != null, points: row.points }
 }
 
 export const TOGGLE_EXPERIMENT = 'default_view'

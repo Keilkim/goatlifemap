@@ -6,7 +6,10 @@
     "dev": "next dev",
     "build": "next build",
     "start": "next start",
-    "lint": "eslint"
+    "lint": "eslint",
+    "migrate": "node scripts/migrate.mjs",
+    "ingest:seoul": "node scripts/ingest-seoul.mjs",
+    "ingest:goodprice": "node scripts/ingest-goodprice.mjs"
   },
   "dependencies": {
     "@maplibre/maplibre-gl-leaflet": "^0.1.3",

@@ -1,7 +1,7 @@
 'use client'
 
 import { useEffect, useRef } from 'react'
-import { MapContainer, Marker, useMap, useMapEvents, CircleMarker, Circle } from 'react-leaflet'
+import { MapContainer, Marker, useMap, useMapEvents, CircleMarker, Circle, AttributionControl } from 'react-leaflet'
 import L from 'leaflet'
 import 'leaflet/dist/leaflet.css'
 
@@ -151,10 +151,13 @@ export default function MapView({
       zoom={15}
       className="h-full w-full"
       zoomControl={false}
+      // 저작권 표기는 좌하단으로. 우하단은 수다방 버튼 자리라 겹치면 표기가 가려진다.
+      attributionControl={false}
       // 서울 전역이 대상이지만 지구 반대편까지 스크롤할 이유는 없다
       maxBounds={[[37.35, 126.7], [37.75, 127.25]]}
       minZoom={11}
     >
+      <AttributionControl position="bottomleft" />
       {/* 바닥은 OpenFreeMap Positron 벡터 타일. OSM 기본 타일은 POI 아이콘이 잔뜩
           박혀 있어 그 위에 얹은 메뉴 박스와 인출선이 묻혔다. */}
       <VectorTiles />

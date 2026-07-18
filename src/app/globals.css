@@ -1,5 +1,14 @@
 @import "tailwindcss";
 
+/* 우측 패널 모드 — 데스크톱이거나 가로로 누운 넓은 화면.
+   조건은 src/lib/layout.ts의 SIDE_PANEL_MEDIA와 반드시 같아야 한다.
+   하단 시트로 만든 요소에 `side:` 접두사를 붙여 이 조건에서만 우측 기둥으로 세운다. */
+@custom-variant side {
+  @media (min-width: 1024px), (min-width: 768px) and (orientation: landscape) {
+    @slot;
+  }
+}
+
 :root {
   /* 애플의 시스템 그레이 계열. 순백/순검 대신 약간 눌러 눈이 편하게 한다. */
   --background: #ffffff;
@@ -258,6 +267,36 @@ body {
 @media (prefers-reduced-transparency: reduce) {
   .jm-sheet { background: #fff; backdrop-filter: none; -webkit-backdrop-filter: none; }
   @media (prefers-color-scheme: dark) { .jm-sheet { background: #1c1c1e; } }
+}
+/* 우측 패널일 땐 아래가 아니라 왼쪽 모서리에서 떠 있는 것으로 읽혀야 한다 —
+   테두리는 왼쪽에, 그림자는 왼쪽으로. (조건은 SIDE_PANEL_MEDIA와 동일) */
+@media (min-width: 1024px), (min-width: 768px) and (orientation: landscape) {
+  .jm-sheet {
+    border-top: 0;
+    border-left: 0.5px solid rgb(255 255 255 / 0.8);
+    box-shadow: -8px 0 40px rgb(0 0 0 / 0.16);
+  }
+}
+@media (min-width: 1024px) and (prefers-color-scheme: dark),
+       (min-width: 768px) and (orientation: landscape) and (prefers-color-scheme: dark) {
+  .jm-sheet {
+    border-left-color: rgb(255 255 255 / 0.12);
+    box-shadow: -8px 0 40px rgb(0 0 0 / 0.6);
+  }
+}
+
+/* 우측 패널은 화면 가장자리에 붙이지 않고 위·아래·오른쪽에 같은 여백을 줘 카드처럼 띄운다.
+   세이프에어리어(노치·홈 인디케이터)가 16px보다 크면 그만큼 더 밀어 가려지지 않게 한다.
+   조건은 SIDE_PANEL_MEDIA와 동일. 폭·모서리·내부 레이아웃은 각 시트가 side: 유틸로 정하고,
+   여기선 네 방향 위치만 공통으로 잡는다. 언레이어드 규칙이라 시트의 bottom-0/inset-0 같은
+   기본 유틸(레이어)을 이 조건에서 확실히 덮는다. */
+@media (min-width: 1024px), (min-width: 768px) and (orientation: landscape) {
+  .jm-side-card {
+    top: max(env(safe-area-inset-top), 16px);
+    right: max(env(safe-area-inset-right), 16px);
+    bottom: max(env(safe-area-inset-bottom), 16px);
+    left: auto;
+  }
 }
 
 /* 가게 위치 점.
@@ -536,6 +575,14 @@ body {
 /* 지도 바닥은 OpenFreeMap Positron이다 — 이미 POI를 걷어낸 회색 지도라
    채도 필터를 또 씌울 필요가 없다. OSM 기본 타일을 쓸 때는 필터로 색을 죽였지만,
    아이콘은 타일에 구워져 있어서 색만 죽을 뿐 사라지지 않았다. 바닥을 바꾸는 게 답이었다. */
+
+/* Leaflet 컨트롤(위치 버튼·저작권 표기)도 노치·홈 인디케이터를 피하게 한다.
+   viewport-fit=cover라 화면 끝까지 그리므로, 컨트롤이 담기는 네 모서리 컨테이너에
+   그만큼 여백을 준다. 데스크톱에선 insets가 0이라 아무 변화 없다. */
+.leaflet-top { padding-top: env(safe-area-inset-top); }
+.leaflet-bottom { padding-bottom: env(safe-area-inset-bottom); }
+.leaflet-left { padding-left: env(safe-area-inset-left); }
+.leaflet-right { padding-right: env(safe-area-inset-right); }
 
 /* Leaflet 기본 attribution이 너무 크다 */
 .leaflet-control-attribution {

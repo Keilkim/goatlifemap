@@ -2,6 +2,7 @@
 
 import { useEffect, useRef } from 'react'
 import { animate } from 'motion'
+import { sheetEnterKeyframes } from '@/lib/layout'
 
 /**
  * 하단 시트.
@@ -33,10 +34,11 @@ export default function Sheet({
       animate(el, { opacity: [0, 1] }, { duration: 0.18 })
       return
     }
-    // 제스처로 던진 게 아니므로 오버슈트 없이(bounce 0) 올라온다
+    // 제스처로 던진 게 아니므로 오버슈트 없이(bounce 0) 들어온다.
+    // 하단 시트면 아래에서, 우측 패널이면 옆에서 — 어디서 왔는지 방향으로 읽힌다.
     animate(
       el,
-      { transform: ['translateY(100%)', 'translateY(0%)'] },
+      { transform: sheetEnterKeyframes() },
       { type: 'spring', bounce: 0, duration: 0.42 }
     )
   }, [open])
@@ -57,7 +59,7 @@ export default function Sheet({
           만들면 지도가 그대로 비쳐 글자가 안 읽힌다 — 큰 표면일수록 두껍게. */}
       <div
         ref={ref}
-        className="jm-sheet absolute inset-x-0 bottom-0 z-[1200] max-h-[68%] overflow-hidden rounded-t-[20px] will-change-transform"
+        className="jm-sheet absolute inset-x-0 bottom-0 z-[1200] max-h-[68%] overflow-hidden rounded-t-[20px] will-change-transform jm-side-card side:flex side:max-h-none side:w-[400px] side:max-w-[86vw] side:flex-col side:rounded-[24px]"
       >
         {/* 손잡이 — 아래에서 올라온 물건이라는 표시 */}
         <div className="flex justify-center pb-1 pt-2">
@@ -95,7 +97,7 @@ export default function Sheet({
           </button>
         </div>
 
-        <div className="jm-scroll max-h-[calc(68vh-72px)] overflow-y-auto overscroll-contain pb-[env(safe-area-inset-bottom)]">
+        <div className="jm-scroll max-h-[calc(68vh-72px)] overflow-y-auto overscroll-contain pb-[env(safe-area-inset-bottom)] side:max-h-none side:min-h-0 side:flex-1">
           {children}
         </div>
       </div>

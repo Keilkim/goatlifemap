@@ -11,6 +11,9 @@ import { CATEGORY_FILTERS } from '@/lib/categories'
 import Sheet from '@/components/Sheet'
 import MenuList from '@/components/MenuList'
 import MenuReview from '@/components/MenuReview'
+import ChatSheet from '@/components/ChatSheet'
+import ReviewCompose from '@/components/ReviewCompose'
+import DirectionsLightbox from '@/components/DirectionsLightbox'
 import Segmented from '@/components/Segmented'
 import { type Cluster } from '@/lib/cluster'
 
@@ -37,8 +40,16 @@ export default function Home() {
   // 지도를 움직이는 중에 원이 따라다니면 아직 안 찾은 범위를 찾은 척하게 된다.
   const [searched, setSearched] = useState<Area | null>(null)
   const [variant, setVariant] = useState<string | null>(null)
+  const [userId, setUserId] = useState<string | null>(null)
   const [points, setPoints] = useState(0)
   const [locating, setLocating] = useState(false)
+  const [chatOpen, setChatOpen] = useState(false)
+  // 리뷰 쓰기 전체화면. 읽기(시트)와 분리한다.
+  const [composeMenu, setComposeMenu] = useState<{ menu: Menu; storeName: string } | null>(null)
+  // 길찾기 라이트박스 — 카카오맵을 앱 안 팝업으로 띄운다.
+  const [dirDest, setDirDest] = useState<{ lat: number; lng: number; name: string } | null>(null)
+  // 작성 성공 시 이 값을 올려 뒤의 리뷰 목록을 다시 불러오게 한다.
+  const [reviewRefresh, setReviewRefresh] = useState(0)
   // 하단 시트. 두 가지만 담는다 — 그 가게의 전체 메뉴, 또는 그 메뉴의 리뷰.
   // fromMenus는 "전체 메뉴를 거쳐 리뷰로 왔나"다. 그래야 뒤로가기를 줄지 알 수 있다.
   const [sheet, setSheet] = useState<
@@ -54,8 +65,6 @@ export default function Home() {
   const [emptyAreaStores, setEmptyAreaStores] = useState(0)
 
   const dwell = useRef<DwellTimer | null>(null)
-  const userIdRef = useRef<string | null>(null)
-
   // 세션 시작 + A/B 그룹 배정.
   // 기본 보기를 한쪽으로 고정하면 그 보기 사용량이 당연히 높게 나와 니즈를 오독한다.
   // 절반은 식당보기로, 절반은 메뉴보기로 시작시킨 뒤 반대편으로의 전환율을 비교한다.
@@ -73,10 +82,11 @@ export default function Home() {
       body: JSON.stringify({ deviceId }),
     })
       .then((r) => r.json())
-      .then((d: { userId: string; variant: string }) => {
-        userIdRef.current = d.userId
+      .then((d: { userId: string; variant: string; points: number }) => {
+        setUserId(d.userId)
         initAnalytics(d.userId, sessionId)
         setVariant(d.variant)
+        setPoints(d.points)
         const initial: ViewMode = d.variant === 'menu_first' ? 'menu' : 'store'
         setView(initial)
         dwell.current = new DwellTimer()
@@ -183,30 +193,39 @@ export default function Home() {
 
   // 가격 검증. 이 서비스의 생사는 "지금 그 가격이 맞나"에 달려 있으므로
   // 목록을 없애도 검증까지 없앨 수는 없다. 카드 안에서 한 번의 탭으로 한다.
-  const verify = useCallback(async (menuId: string, kind: string) => {
-    if (!userIdRef.current) return
+  // 성공했는지 boolean으로 돌려준다 — 호출부(가격 변경 입력)가 성공했을 때만
+  // "접수됐어요"를 띄우게. 실패(중복 제보 409·차단 403·오프라인)인데도 접수된 척하면 안 된다.
+  const verify = useCallback(async (menuId: string, kind: string, reportedPrice?: number): Promise<boolean> => {
+    if (!userId) return false
     track('verify_click', { menuId, kind })
-    const res = await fetch('/api/verify', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ userId: userIdRef.current, menuId, kind }),
-    })
-    const d = await res.json()
-    if (res.ok) {
-      setPoints(d.points)
-      // 품절 제보는 지도에서 바로 빠져야 하므로 다시 조회한다
-      if (area) fetchStores(area, maxPrice, cats)
-    } else {
+    try {
+      const res = await fetch('/api/verify', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          userId, menuId, kind,
+          ...(reportedPrice != null ? { reportedPrice } : {}),
+        }),
+      })
+      const d = await res.json()
+      if (res.ok) {
+        setPoints(d.points)
+        if (area) fetchStores(area, maxPrice, cats)
+        return true
+      }
       alert(d.error)
+      return false
+    } catch {
+      alert('연결이 불안정해요')
+      return false
     }
-  }, [fetchStores, area, maxPrice, cats])
+  }, [fetchStores, area, maxPrice, cats, userId])
 
-  // 길찾기는 목적지만 넘기고 카카오맵에 맡긴다.
-  // 출발지 좌표를 우리가 넘길 이유가 없다 — 카카오맵이 알아서 사용자 위치를 잡고,
-  // 우리는 위치정보를 취급하지 않아도 된다.
+  // 길찾기 → 앱 안 라이트박스로 카카오맵을 띄운다(새 탭이 아니라).
+  // 출발지=내 위치 자동 잡기와 폴백은 라이트박스가 처리한다. 여기선 목적지만 넘긴다.
   const directions = useCallback((lat: number, lng: number, name: string) => {
     track('directions_click', { name, view })
-    window.open(`https://map.kakao.com/link/to/${encodeURIComponent(name)},${lat},${lng}`, '_blank')
+    setDirDest({ lat, lng, name })
   }, [view])
 
   // 지도 위 메뉴를 바로 눌렀다 → 그 메뉴의 리뷰. 전체 메뉴를 거치지 않았으므로 뒤로가기가 없다.
@@ -250,7 +269,7 @@ export default function Home() {
 
       {/* 상단 크롬 — 지도 위에 떠 있는 반투명 층. 지도를 잘라먹지 않는다. */}
       <div className="pointer-events-none absolute inset-x-0 top-0 z-[1100]">
-        <header className="jm-chrome pointer-events-auto flex items-center justify-between px-4 pb-2 pt-3">
+        <header className="jm-chrome pointer-events-auto flex items-center justify-between px-4 pb-2 pt-[calc(env(safe-area-inset-top)+12px)]">
           <div className="flex items-baseline gap-2">
             <h1 className="t-display text-[19px] font-bold text-[#1c1c1e] dark:text-[#f2f2f7]">갓생맵</h1>
             <span className="t-caption hidden text-[11.5px] font-medium text-[#3c3c43]/55 min-[380px]:inline dark:text-[#ebebf5]/55">
@@ -305,7 +324,7 @@ export default function Home() {
           메뉴로 보기가 왼쪽이다: 이 서비스의 주장이 "식당이 아니라 메뉴"이므로
           먼저 오는 자리를 준다. 단 처음 선택되는 쪽은 A/B가 정한다 —
           기본값을 한쪽으로 고정하면 그 보기 사용량이 당연히 높게 나와 니즈를 오독한다. */}
-      <div className="absolute inset-x-0 bottom-0 z-[1100] flex flex-col items-center gap-2 px-3 pb-4">
+      <div className="absolute inset-x-0 bottom-0 z-[1100] flex flex-col items-center gap-2 px-3 pb-[calc(env(safe-area-inset-bottom)+16px)]">
         {searched && !isClustered && (
           <span className="jm-card t-caption pointer-events-none rounded-full px-2.5 py-1 text-[10.5px] font-medium text-[#3c3c43]/70 dark:text-[#ebebf5]/70">
             {radiusLabel(searched.radiusM)} · {isClustered ? `${clusterTotal.toLocaleString()}곳` : `${stores.length}곳`}
@@ -344,6 +363,23 @@ export default function Home() {
         </div>
       )}
 
+      {/* 수다방 버튼 — 우하단 코너에 확실히 앉힌다. 홈 인디케이터·제스처 바에 안 물리도록
+          env(safe-area-inset-bottom)만큼 띄운다(기기마다 이 높이가 다르다).
+          세션이 잡힌(variant 배정된) 뒤에만 띄운다 — 익명 신원이 있어야 글을 쓴다. */}
+      {variant && !chatOpen && (
+        <button
+          onClick={() => { setChatOpen(true); track('chat_open', {}) }}
+          aria-label="수다방"
+          className="jm-card jm-press absolute bottom-[calc(env(safe-area-inset-bottom)+16px)] right-4 z-[1100] flex size-12 items-center justify-center rounded-full"
+        >
+          <svg viewBox="0 0 24 24" className="size-5 text-[#ff7a18]" fill="none" stroke="currentColor" strokeWidth="1.9" strokeLinecap="round" strokeLinejoin="round">
+            <path d="M21 11.5a8.5 8.5 0 0 1-12.5 7.5L3 21l1.5-4.5A8.5 8.5 0 1 1 21 11.5z" />
+          </svg>
+        </button>
+      )}
+
+      <ChatSheet open={chatOpen} onClose={() => setChatOpen(false)} userId={userId} />
+
       {/* 하단 시트 — 전체 메뉴 아니면 메뉴 리뷰, 둘 뿐이다. */}
       {sheet?.kind === 'menus' && (
         <Sheet
@@ -377,8 +413,37 @@ export default function Home() {
           title={sheet.menu.name}
           subtitle={sheet.store.name}
         >
-          <MenuReview key={sheet.menu.id} menu={sheet.menu} storeName={sheet.store.name} onVerify={verify} />
+          <MenuReview
+            key={sheet.menu.id}
+            menu={sheet.menu}
+            storeName={sheet.store.name}
+            onVerify={verify}
+            onDirections={() => directions(sheet.store.lat, sheet.store.lng, sheet.store.name)}
+            onShowMenus={() => setSheet({ kind: 'menus', store: sheet.store })}
+            onCompose={() => setComposeMenu({ menu: sheet.menu, storeName: sheet.store.name })}
+            refreshKey={reviewRefresh}
+          />
         </Sheet>
+      )}
+
+      {/* 리뷰 쓰기 — 전체화면. 시트(읽기) 위를 덮는다. */}
+      {composeMenu && (
+        <ReviewCompose
+          menu={composeMenu.menu}
+          storeName={composeMenu.storeName}
+          onClose={() => setComposeMenu(null)}
+          onSubmitted={(pts) => { setReviewRefresh((n) => n + 1); setPoints(pts) }}
+        />
+      )}
+
+      {/* 길찾기 라이트박스 — 카카오맵을 앱 안 팝업으로. 최상단을 덮는다. */}
+      {dirDest && (
+        <DirectionsLightbox
+          dest={dirDest}
+          userLocation={userLocation}
+          onClose={() => setDirDest(null)}
+          onLocated={setUserLocation}
+        />
       )}
     </main>
   )

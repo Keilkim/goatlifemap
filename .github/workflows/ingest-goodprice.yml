@@ -1,0 +1,40 @@
+# 착한가격업소 메뉴/가격 수집 — 월 1회 자동 + 수동 실행.
+#
+# 왜 GitHub Actions인가: 이 수집은 목록 전체를 받고 가게마다 상세를 도는 수 분짜리 배치다.
+# Vercel 서버리스 함수(Hobby 10초 / Pro 최대 300초)엔 안 맞는다. GitHub 러너(최대 6시간)에서
+# 돌리고 Supabase에 직접 연결한다. 수집기는 결과를 바로 덮어쓰지 않고 "변경 후보"로만 쌓으므로,
+# 자동 실행이어도 관리자 확인 전까지 지도는 바뀌지 않는다(이상 감지 방식).
+#
+# 필요 시크릿 (Repo → Settings → Secrets and variables → Actions):
+#   DATABASE_URL_DIRECT : Supabase "직접 연결"(포트 5432, db.[프로젝트].supabase.co).
+#                         ⚠️ 풀러(6543) 아님 — 수집기는 임시테이블·advisory lock을 써서 직접 연결이 맞다.
+name: ingest-goodprice
+
+on:
+  schedule:
+    - cron: '0 18 1 * *' # 매월 1일 18:00 UTC = 2일 03:00 KST. 소스가 분기 갱신이라 월 1회로 충분(조절 가능).
+  workflow_dispatch: {}   # 관리자가 GitHub Actions 탭에서 수동 실행
+
+concurrency:
+  group: ingest-goodprice
+  cancel-in-progress: false # 도는 중이면 취소 말고 큐잉 — 부분 실행은 "사라짐" 판정에 안 쓰이지만 겹치기 방지
+
+jobs:
+  ingest:
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+      - run: npm ci
+      # schema 최신화(멱등 — schema_migrations로 이미 적용된 건 건너뜀). 수집이 새 테이블에 안 걸리게.
+      - name: migrate
+        run: npm run migrate
+        env:
+          DATABASE_URL: ${{ secrets.DATABASE_URL_DIRECT }}
+      - name: ingest goodprice
+        run: npm run ingest:goodprice
+        env:
+          DATABASE_URL: ${{ secrets.DATABASE_URL_DIRECT }}

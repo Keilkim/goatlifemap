@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { sql } from '@/lib/db'
+import { clientIp, rateLimit } from '@/lib/ratelimit'
 import { expandCategories, categoryIcon } from '@/lib/categories'
 import { CLUSTER_ZOOM, gridSizeForZoom } from '@/lib/cluster'
 import { bboxAround, EARTH_R } from '@/lib/geo'
@@ -62,22 +63,33 @@ async function fetchClusters(a: Args, zoom: number) {
 // 마커는 가게 단위, 목록은 토글에 따라 가게/메뉴로 펼쳐지므로
 // 한 번의 응답에 가게와 그 메뉴를 함께 담아 두 보기 모두를 커버한다.
 export async function GET(req: NextRequest) {
+  // 가장 무거운 쿼리(haversine + 클러스터). 읽기라 넉넉히 잡되 도배성 부하는 막는다.
+  if (!(await rateLimit('stores', clientIp(req), 120, 60))) {
+    return NextResponse.json({ error: '잠시 후 다시 시도해주세요' }, { status: 429 })
+  }
+
   const p = req.nextUrl.searchParams
 
   const centerLat = parseFloat(p.get('centerLat') ?? '')
   const centerLng = parseFloat(p.get('centerLng') ?? '')
-  const radiusM = parseFloat(p.get('radiusM') ?? '')
-  if (![centerLat, centerLng, radiusM].every(Number.isFinite) || radiusM <= 0) {
+  const rawRadius = parseFloat(p.get('radiusM') ?? '')
+  if (![centerLat, centerLng, rawRadius].every(Number.isFinite) || rawRadius <= 0) {
     return NextResponse.json({ error: 'centerLat, centerLng, radiusM이 필요합니다' }, { status: 400 })
   }
 
+  // 클라이언트가 보내는 값은 다 걸러 넣는다 — 음수 limit은 SQL을 터뜨리고(500), 거대 반경은
+  // 전체 스캔이 되며, NaN maxPrice/zoom도 방어한다. 유한하지 않으면 기본값으로 되돌린다.
+  const clamp = (n: number, lo: number, hi: number, dflt: number) =>
+    Number.isFinite(n) ? Math.min(Math.max(n, lo), hi) : dflt
+  const radiusM = Math.min(rawRadius, 50000) // 상한 50km(서울 전역 커버) — 전체 스캔 방지
+  const maxPrice = clamp(parseInt(p.get('maxPrice') ?? '', 10), 0, 1_000_000, 10000)
+  const limit = clamp(parseInt(p.get('limit') ?? '', 10), 1, 500, 300)
+  const zoom = clamp(parseInt(p.get('zoom') ?? '', 10), 1, 22, 15)
+
   // 인덱스(lat,lng)를 타기 위한 사각형 선별. 실제 원 판정은 위 distance가 한다.
   const box = bboxAround(centerLat, centerLng, radiusM)
-  const maxPrice = parseInt(p.get('maxPrice') ?? '10000', 10)
   // 화면의 "중식" 같은 라벨을 공공데이터의 "중국식" 같은 실제 값으로 넓힌다
   const categories = expandCategories(p.getAll('category').filter(Boolean))
-  const limit = Math.min(parseInt(p.get('limit') ?? '300', 10), 500)
-  const zoom = parseInt(p.get('zoom') ?? '15', 10)
 
   const args: Args = { centerLat, centerLng, radiusM, ...box, maxPrice, categories }
 
@@ -123,7 +135,8 @@ export async function GET(req: NextRequest) {
     -- 평점은 메뉴 단위다. 같은 집이라도 김치찌개는 훌륭하고 돈까스는 별로일 수 있다.
     left join lateral (
       select round(avg(rating)::numeric, 1)::float as avg_rating, count(*)::int as n
-      from menu_reviews mr where mr.menu_id = m.id and mr.rating is not null
+      from menu_reviews mr
+      where mr.menu_id = m.id and mr.rating is not null and mr.status = 'approved'
     ) r on true
     where ${withinRadius(args)}
     group by s.id

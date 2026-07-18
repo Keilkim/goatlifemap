@@ -28,22 +28,73 @@ type Review = {
   created_at: string
 }
 
+type VerificationKind = 'price_ok' | 'price_changed' | 'discontinued'
+
+/** 길찾기 — 사람이 걸어가는 모양. MenuList의 것과 같은 아이콘. */
+function WalkIcon() {
+  return (
+    <svg viewBox="0 0 24 24" className="size-4" fill="none" stroke="currentColor" strokeWidth="1.9" strokeLinecap="round" strokeLinejoin="round">
+      <circle cx="13.2" cy="4.2" r="1.7" />
+      <path d="M12.4 21l1.3-5.6-2.8-2.7.9-4.5M8 21l2.3-4.6M11.8 8.2L8.8 9.8 7.4 12.9M11.8 8.2l3.5 1.3 1.9 3.3" />
+    </svg>
+  )
+}
+
 export default function MenuReview({
-  menu, storeName, onVerify,
+  menu, storeName, onVerify, onDirections, onShowMenus, onCompose, refreshKey,
 }: {
   menu: Menu
   storeName: string
-  onVerify: (menuId: string, kind: string) => void
+  // reportedPrice는 '가격이 바뀌었어요'(price_changed)일 때만 채워진다.
+  // 성공 여부를 돌려줘 호출부가 성공했을 때만 '접수됐어요'를 띄운다.
+  onVerify: (menuId: string, kind: VerificationKind, reportedPrice?: number) => Promise<boolean>
+  onDirections: () => void
+  onShowMenus: () => void
+  // 리뷰 쓰기는 전체화면(ReviewCompose)으로 뺐다. 이 시트는 읽기 전용.
+  onCompose: () => void
+  // 작성 화면에서 등록에 성공하면 이 값이 바뀌어 리뷰 목록을 다시 불러온다.
+  refreshKey: number
 }) {
   // 다른 메뉴로 바뀌면 부모가 key로 이 컴포넌트를 새로 만든다.
-  // 그래서 여기서 상태를 되돌릴 필요가 없다 — effect에서 setState로 초기화하면
-  // 렌더가 한 번 더 도는 데다, 옛 메뉴의 리뷰가 한 프레임 비친다.
   const [reviews, setReviews] = useState<Review[]>([])
   const [counts, setCounts] = useState<Record<string, number>>({})
-  const [picked, setPicked] = useState<string[]>([])
-  const [stars, setStars] = useState(0)
   const [loading, setLoading] = useState(true)
-  const [sent, setSent] = useState(false)
+  // 가격 변경 제보: 버튼을 누르면 바뀐 가격 입력칸이 열린다.
+  const [changing, setChanging] = useState(false)
+  const [newPrice, setNewPrice] = useState('')
+  const [reportedKind, setReportedKind] = useState<VerificationKind | null>(null)
+  const [submittingKind, setSubmittingKind] = useState<VerificationKind | null>(null)
+
+  const submitVerification = async (kind: 'price_ok' | 'discontinued') => {
+    setSubmittingKind(kind)
+    try {
+      const ok = await onVerify(menu.id, kind)
+      if (ok) setReportedKind(kind)
+    } finally {
+      setSubmittingKind(null)
+    }
+  }
+
+  const submitChange = async () => {
+    const n = parseInt(newPrice, 10)
+    if (!Number.isInteger(n) || n < 0 || n > 1_000_000) {
+      alert('바뀐 가격을 숫자로 입력해주세요')
+      return
+    }
+    // 서버가 실제로 받아준 경우에만 '접수됐어요'를 띄운다. 실패(중복·차단·오프라인)면
+    // onVerify가 alert하고 false를 주므로, 입력창을 그대로 둔다.
+    setSubmittingKind('price_changed')
+    try {
+      const ok = await onVerify(menu.id, 'price_changed', n)
+      if (ok) {
+        setChanging(false)
+        setNewPrice('')
+        setReportedKind('price_changed') // 운영자 승인 대기 — 지도엔 승인 후 반영된다
+      }
+    } finally {
+      setSubmittingKind(null)
+    }
+  }
 
   useEffect(() => {
     // 화면이 사라진 뒤 도착한 응답으로 상태를 건드리지 않는다
@@ -58,33 +109,31 @@ export default function MenuReview({
       .catch(() => { /* 리뷰가 안 떠도 가격은 보여야 한다 */ })
       .finally(() => { if (alive) setLoading(false) })
     return () => { alive = false }
-  }, [menu.id])
-
-  const submit = async () => {
-    if (!picked.length && !stars) return
-    const deviceId = localStorage.getItem('jm_device_id')
-    if (!deviceId) return
-    const res = await fetch('/api/reviews', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ userId: deviceId, menuId: menu.id, tags: picked, rating: stars || null }),
-    })
-    const d = await res.json()
-    if (res.ok) {
-      setSent(true)
-      setReviews((prev) => [d.review, ...prev])
-      setCounts((prev) => {
-        const next = { ...prev }
-        picked.forEach((t) => { next[t] = (next[t] ?? 0) + 1 })
-        return next
-      })
-    } else {
-      alert(d.error)
-    }
-  }
+    // refreshKey가 바뀌면(작성 화면에서 등록 성공) 목록을 다시 불러온다.
+  }, [menu.id, refreshKey])
 
   return (
     <div className="px-4 pb-4">
+      {/* 길찾기 + 다른 메뉴도 보기.
+          지도에서 메뉴를 바로 눌러 들어오면 이 가게의 다른 메뉴로 갈 길이 없다 —
+          '다른 메뉴도 보기'가 그 통로다. 길찾기는 주황(주요 동작), 다른 메뉴 보기는
+          나머지 버튼들과 같은 화이트. */}
+      <div className="mb-3 flex flex-col gap-1.5">
+        <button
+          onClick={onDirections}
+          className="jm-press t-caption flex w-full items-center justify-center gap-1.5 rounded-xl bg-[#ff7a18] py-2 text-[13px] font-semibold text-white"
+        >
+          <WalkIcon />
+          길찾기
+        </button>
+        <button
+          onClick={onShowMenus}
+          className="jm-press t-caption w-full rounded-xl bg-black/[0.05] py-2 text-[13px] font-semibold text-[#3c3c43]/75 dark:bg-white/[0.09] dark:text-[#ebebf5]/75"
+        >
+          다른 메뉴도 보기
+        </button>
+      </div>
+
       {/* 가격이 이 화면의 주인공이다 */}
       <div className="flex items-center gap-3 rounded-2xl bg-black/[0.03] p-3 dark:bg-white/[0.05]">
         {menuIcon(menu) ? (
@@ -111,78 +160,89 @@ export default function MenuReview({
         </div>
       </div>
 
-      {/* 가격 검증이 먼저다. 이 서비스의 생사가 여기 달려 있다. */}
-      <div className="mt-3 flex gap-1.5">
-        <button
-          onClick={() => onVerify(menu.id, 'price_ok')}
-          className="jm-press t-caption flex-1 rounded-xl bg-black/[0.05] py-2 text-[12px] font-semibold text-[#3c3c43]/75 dark:bg-white/[0.09] dark:text-[#ebebf5]/75"
-        >
-          가격 맞아요 · +5P
-        </button>
-        <button
-          onClick={() => onVerify(menu.id, 'sold_out')}
-          className="jm-press t-caption flex-1 rounded-xl bg-black/[0.05] py-2 text-[12px] font-semibold text-[#3c3c43]/75 dark:bg-white/[0.09] dark:text-[#ebebf5]/75"
-        >
-          지금 안 팔아요 · +20P
-        </button>
-      </div>
-
-      {/* 선택형 리뷰 — 장문 대신 별점과 태그 */}
-      <p className="t-caption mt-4 text-[11px] font-semibold text-[#3c3c43]/45 dark:text-[#ebebf5]/45">
-        {sent ? '고마워요, 등록됐어요' : '먹어봤다면 알려주세요'}
-      </p>
-
-      {!sent && (
-        <div className="mt-1.5 flex gap-0.5">
-          {[1, 2, 3, 4, 5].map((n) => (
+      {/* 메뉴 정보 검증. 가격이 맞다는 확인은 확인일을 갱신하고, 가격 변경·단종 제보는
+          운영자 승인 대기열로 보낸다. 서버가 접수에 성공한 경우에만 완료 상태를 보여준다. */}
+      {reportedKind ? (
+        <p className="t-caption mt-3 rounded-xl bg-black/[0.03] py-2.5 text-center text-[12px] font-semibold text-[#3c3c43]/60 dark:bg-white/[0.05] dark:text-[#ebebf5]/60">
+          {reportedKind === 'price_ok'
+            ? '접수됐어요 · 운영자 확인 후 +5P 지급돼요'
+            : '접수됐어요 · 운영자 확인 후 반영·지급돼요'}
+        </p>
+      ) : changing ? (
+        <div className="mt-3 flex gap-1.5">
+          <input
+            value={newPrice}
+            onChange={(e) => setNewPrice(e.target.value.replace(/[^0-9]/g, ''))}
+            inputMode="numeric"
+            autoFocus
+            disabled={submittingKind !== null}
+            placeholder="바뀐 가격"
+            className="t-price min-w-0 flex-1 rounded-xl bg-black/[0.05] px-3 py-2 text-[13px] font-semibold text-[#1c1c1e] placeholder:font-medium placeholder:text-[#3c3c43]/40 disabled:opacity-60 dark:bg-white/[0.09] dark:text-[#f2f2f7] dark:placeholder:text-[#ebebf5]/40"
+          />
+          <button
+            onClick={submitChange}
+            disabled={submittingKind !== null}
+            className="jm-press t-caption shrink-0 rounded-xl bg-[#ff7a18] px-4 py-2 text-[12px] font-semibold text-white disabled:opacity-60"
+          >
+            {submittingKind === 'price_changed' ? '접수 중…' : '제보'}
+          </button>
+          <button
+            onClick={() => { setChanging(false); setNewPrice('') }}
+            disabled={submittingKind !== null}
+            className="jm-press t-caption shrink-0 rounded-xl bg-black/[0.05] px-3 py-2 text-[12px] font-semibold text-[#3c3c43]/60 disabled:opacity-60 dark:bg-white/[0.09] dark:text-[#ebebf5]/60"
+          >
+            취소
+          </button>
+        </div>
+      ) : (
+        <div className="mt-3 space-y-1.5">
+          <div className="flex gap-1.5">
             <button
-              key={n}
-              onClick={() => setStars(stars === n ? 0 : n)}
-              aria-label={`${n}점`}
-              className="jm-press p-0.5"
+              onClick={() => void submitVerification('price_ok')}
+              disabled={submittingKind !== null}
+              className="jm-press t-caption flex-1 rounded-xl bg-black/[0.05] py-2.5 text-[12px] font-semibold text-[#3c3c43]/75 disabled:opacity-60 dark:bg-white/[0.09] dark:text-[#ebebf5]/75"
             >
-              <svg
-                viewBox="0 0 24 24"
-                className="size-7"
-                style={{ color: n <= stars ? '#ff7a18' : 'rgb(60 60 67 / 0.18)' }}
-                fill="currentColor"
-              >
-                <path d="M12 2.6l2.9 5.9 6.5.9-4.7 4.6 1.1 6.5-5.8-3-5.8 3 1.1-6.5-4.7-4.6 6.5-.9z" />
-              </svg>
+              {submittingKind === 'price_ok' ? '접수 중…' : '가격 맞아요 · +5P'}
             </button>
+            <button
+              onClick={() => void submitVerification('discontinued')}
+              disabled={submittingKind !== null}
+              className="jm-press t-caption flex-1 rounded-xl bg-black/[0.05] py-2.5 text-[12px] font-semibold text-[#3c3c43]/75 disabled:opacity-60 dark:bg-white/[0.09] dark:text-[#ebebf5]/75"
+            >
+              {submittingKind === 'discontinued' ? '접수 중…' : '메뉴가 없어졌어요 · +20P'}
+            </button>
+          </div>
+          <button
+            onClick={() => setChanging(true)}
+            disabled={submittingKind !== null}
+            className="jm-press t-caption w-full rounded-xl bg-black/[0.05] py-2.5 text-[12.5px] font-semibold text-[#3c3c43]/75 disabled:opacity-60 dark:bg-white/[0.09] dark:text-[#ebebf5]/75"
+          >
+            가격이 바뀌었어요 · +20P
+          </button>
+        </div>
+      )}
+
+      {/* 남들이 남긴 태그 요약(읽기 전용). 쓰기는 아래 '리뷰 쓰기'에서 전체화면으로. */}
+      {Object.keys(counts).length > 0 && (
+        <div className="mt-4 flex flex-wrap gap-1.5">
+          {TAGS.filter((t) => (counts[t.key] ?? 0) > 0).map((t) => (
+            <span
+              key={t.key}
+              className="jm-chip t-caption rounded-full px-2.5 py-1.5 text-[12px] font-medium text-[#3c3c43]/70 dark:text-[#ebebf5]/70"
+            >
+              {t.label} <span className="opacity-55">{counts[t.key]}</span>
+            </span>
           ))}
         </div>
       )}
-      <div className="mt-1.5 flex flex-wrap gap-1.5">
-        {TAGS.map((t) => {
-          const n = counts[t.key] ?? 0
-          const on = picked.includes(t.key)
-          return (
-            <button
-              key={t.key}
-              disabled={sent}
-              onClick={() => setPicked((p) => (p.includes(t.key) ? p.filter((x) => x !== t.key) : [...p, t.key]))}
-              className={`jm-chip t-caption rounded-full px-2.5 py-1.5 text-[12px] font-medium disabled:opacity-60 ${
-                on
-                  ? 'bg-[#ff7a18] text-white'
-                  : 'bg-black/[0.05] text-[#3c3c43]/70 dark:bg-white/[0.09] dark:text-[#ebebf5]/70'
-              }`}
-            >
-              {t.label}
-              {n > 0 && <span className="ml-1 opacity-60">{n}</span>}
-            </button>
-          )
-        })}
-      </div>
 
-      {(picked.length > 0 || stars > 0) && !sent && (
-        <button
-          onClick={submit}
-          className="jm-press t-caption mt-2.5 w-full rounded-xl bg-[#1c1c1e] py-2.5 text-[13px] font-semibold text-white dark:bg-white dark:text-[#1c1c1e]"
-        >
-          등록하기 · +10P
-        </button>
-      )}
+      {/* 리뷰 쓰기 — 별점·태그·코멘트는 좁은 시트 대신 전체화면에서 쓴다 */}
+      <button
+        onClick={onCompose}
+        className="jm-press t-caption mt-4 w-full rounded-xl bg-[#1c1c1e] py-2.5 text-[13px] font-semibold text-white dark:bg-white dark:text-[#1c1c1e]"
+      >
+        리뷰 쓰기 · +10P
+      </button>
 
       {/* 남의 리뷰 */}
       {!loading && reviews.length > 0 && (

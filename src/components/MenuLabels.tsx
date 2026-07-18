@@ -1,6 +1,6 @@
 'use client'
 
-import { useReducer } from 'react'
+import { useEffect, useReducer, useRef } from 'react'
 import { useMap, useMapEvents } from 'react-leaflet'
 import type { Store, ViewMode } from '@/lib/types'
 import { placeLabels, leaderStart, type Box } from '@/lib/labels'
@@ -46,6 +46,41 @@ export default function MenuLabels({
   // 지도가 움직일 때 다시 그리기만 하면 된다.
   const [, redraw] = useReducer((n: number) => n + 1, 0)
   useMapEvents({ move: redraw, zoom: redraw, resize: redraw })
+
+  // 드래그(화면 이동)를 클릭으로 오인하지 않게 한다.
+  //
+  // 마커(점·박스·메뉴)는 지도 위에 얹은 오버레이 버튼이라, 끌기 시작점이 마커 위면
+  // mousedown→up이 클릭으로 발화돼 "지도만 옮기려던" 동작이 음식점·메뉴 선택으로 샌다.
+  // 지도 이동 자체는 이미 Leaflet이 처리하므로(마커는 mousedown을 막지 않는다), 여기선
+  // "누른 뒤 뗄 때까지 일정 거리 이상 움직였으면 그 클릭은 드래그였다"고 보고 무시한다.
+  // 마우스·터치를 한꺼번에 다루려고 pointer 이벤트를 캡처 단계에서 지켜본다.
+  const dragged = useRef(false)
+  useEffect(() => {
+    const el = map.getContainer()
+    let sx = 0, sy = 0, down = false
+    const onDown = (e: PointerEvent) => { sx = e.clientX; sy = e.clientY; down = true; dragged.current = false }
+    const onMove = (e: PointerEvent) => {
+      if (down && Math.hypot(e.clientX - sx, e.clientY - sy) > 10) dragged.current = true
+    }
+    const onUp = () => { down = false }
+    el.addEventListener('pointerdown', onDown, true)
+    el.addEventListener('pointermove', onMove, true)
+    el.addEventListener('pointerup', onUp, true)
+    el.addEventListener('pointercancel', onUp, true)
+    return () => {
+      el.removeEventListener('pointerdown', onDown, true)
+      el.removeEventListener('pointermove', onMove, true)
+      el.removeEventListener('pointerup', onUp, true)
+      el.removeEventListener('pointercancel', onUp, true)
+    }
+  }, [map])
+
+  // 마커 탭 핸들러 — 드래그였으면 무시하고, 아니면 지도 클릭(시트 닫힘)으로 새지 않게 막고 실행.
+  const tap = (fn: () => void) => (e: React.MouseEvent) => {
+    if (dragged.current) return
+    e.stopPropagation()
+    fn()
+  }
 
   const size = map.getSize()
 
@@ -100,7 +135,7 @@ export default function MenuLabels({
           // 어느 가게 얘기인지 눈으로 이을 수 있다 — 다 같이 어두워지면 알 수 없다.
           className={`jm-dot absolute ${item.id === selectedStoreId ? 'jm-dot--on z-[1195]' : 'z-[450]'}`}
           style={{ left: anchor.x, top: anchor.y, transform: 'translate(-50%, -50%)' }}
-          onClick={(e) => { e.stopPropagation(); onStoreTap(item) }}
+          onClick={tap(() => onStoreTap(item))}
           aria-label={item.name}
         >
           <StoreIcon />
@@ -122,7 +157,7 @@ export default function MenuLabels({
           {view === 'store' ? (
             <button
               className={`jm-pin w-full ${item.id === selectedStoreId ? 'jm-pin--on' : ''}`}
-              onClick={(e) => { e.stopPropagation(); onStoreTap(item) }}
+              onClick={tap(() => onStoreTap(item))}
             >
               <span className="jm-pin__name">{item.name}</span>
               <span className="jm-pin__count">{item.menus.length}</span>
@@ -135,7 +170,7 @@ export default function MenuLabels({
                   // 누른 메뉴만 강조한다. 박스 전체를 두르면 아래 시트엔 메뉴 하나만
                   // 떠 있는데 지도엔 여러 개가 묶여 보여서 뭘 보고 있는지 헷갈린다.
                   className={`jm-row ${m.id === selectedMenuId ? 'jm-row--on' : ''}`}
-                  onClick={(e) => { e.stopPropagation(); onMenuTap(item, m.id) }}
+                  onClick={tap(() => onMenuTap(item, m.id))}
                 >
                   {/* 개별 아이콘 → 업종 폴백 → (둘 다 없을 때만) X.
                       한 끼 아닌 메뉴를 걸러내고 폴백까지 붙으면 X는 사실상 안 남는다. */}
@@ -163,7 +198,7 @@ export default function MenuLabels({
               {item.menus.length > MARKER_MENUS && (
                 <button
                   className="jm-more"
-                  onClick={(e) => { e.stopPropagation(); onStoreTap(item) }}
+                  onClick={tap(() => onStoreTap(item))}
                 >
                   메뉴 {item.menus.length - MARKER_MENUS}개 더
                 </button>

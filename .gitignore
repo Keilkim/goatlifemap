@@ -38,6 +38,9 @@ yarn-error.log*
 # vercel
 .vercel
 
+# claude code — 기기별 로컬 설정(스킬은 공유하지만 이 파일은 로컬 전용)
+.claude/settings.local.json
+
 # typescript
 *.tsbuildinfo
 next-env.d.ts
