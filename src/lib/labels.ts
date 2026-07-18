@@ -7,8 +7,9 @@
 // 자리로 밀어낸 뒤 인출선으로 잇는다.
 //
 // 알고리즘: 탐욕적 배치. 중요한 것부터(싼 것부터) 후보 자리를 순서대로 시도해
-// 이미 놓인 박스와 안 겹치는 첫 자리에 놓는다. 자리를 못 찾으면 그 라벨은 버린다 —
-// 겹쳐서 둘 다 못 읽게 만드느니 하나만 보여주는 게 낫다.
+// 이미 놓인 박스와 안 겹치는 첫 자리에 놓는다. 겹치지 않는 자리가 하나도 없으면
+// 버리지 않고 '가장 덜 겹치는' 자리에 놓는다 — 모든 가게의 메뉴가 보여야 하기 때문이다.
+// (밀집 지역은 약간 겹치지만, 확대하면 자리가 생겨 저절로 벌어진다.)
 
 export type Box = { x: number; y: number; w: number; h: number }
 
@@ -40,6 +41,13 @@ function overlaps(a: Box, b: Box): boolean {
   )
 }
 
+/** 두 박스가 실제로 겹치는 넓이 (안 겹치면 0). 폴백에서 '가장 덜 겹치는' 자리를 고를 때 쓴다. */
+function overlapArea(a: Box, b: Box): number {
+  const ox = Math.max(0, Math.min(a.x + a.w, b.x + b.w) - Math.max(a.x, b.x))
+  const oy = Math.max(0, Math.min(a.y + a.h, b.y + b.h) - Math.max(a.y, b.y))
+  return ox * oy
+}
+
 /**
  * box가 null이면 라벨 자리를 못 찾은 것이다. 그래도 점은 찍어야 한다 —
  * 자리가 없다고 가게를 지도에서 통째로 지우면 데이터를 숨기는 것이고,
@@ -63,7 +71,8 @@ export function placeLabels<T>(
   bounds: { w: number; h: number },
   reserved: Box[] = []
 ): Placement<T>[] {
-  const placed: Box[] = [...reserved]
+  const blockers: Box[] = [...reserved]  // strict 검사용: 예약영역 + 이미 놓인 라벨
+  const labelBoxes: Box[] = []           // 폴백 겹침넓이 계산용: 라벨 박스만
   // 점들도 장애물이다 — 남의 가게 위치를 내 박스로 덮으면 안 된다.
   // 단 자기 자신의 점은 예외다: 인출선으로 이어질 대상이라 가까이 있는 게 정상이고,
   // 장애물로 치면 어느 후보 자리도 통과하지 못해 라벨이 전부 사라진다 (실제로 그랬다).
@@ -82,24 +91,33 @@ export function placeLabels<T>(
     if (a.x < -50 || a.y < -50 || a.x > bounds.w + 50 || a.y > bounds.h + 50) continue
 
     let chosen: Box | null = null
+    // 겹침 없는 자리를 못 찾을 때를 대비해 '가장 덜 나쁜' 후보를 함께 고른다.
+    let fallback: Box | null = null
+    let fallbackPenalty = Infinity
     for (const [dx, dy] of CANDIDATES) {
       const box: Box = {
         x: a.x + dx * (w / 2 + GAP) - w / 2,
         y: a.y + dy * (h / 2 + GAP) - h / 2,
       w, h }
-      // 화면 밖으로 나가면 다음 후보
-      if (box.x < 4 || box.y < 4 || box.x + w > bounds.w - 4 || box.y + h > bounds.h - 4) continue
-      if (placed.some((p) => overlaps(box, p))) continue
-      if (others.some((d) => overlaps(box, d))) continue
-      chosen = box
-      break
+      const off = box.x < 4 || box.y < 4 || box.x + w > bounds.w - 4 || box.y + h > bounds.h - 4
+      const hitBlocker = blockers.some((p) => overlaps(box, p))
+      const hitDot = others.some((d) => overlaps(box, d))
+      if (!off && !hitBlocker && !hitDot) { chosen = box; break }
+      // 폴백 점수: 화면 밖·예약영역(필터바/토글)은 강하게 회피, 다른 라벨과의
+      // 겹침은 넓이만큼, 남의 점을 덮는 건 중간 페널티.
+      let penalty = 0
+      if (off) penalty += 1e7
+      for (const r of reserved) if (overlaps(box, r)) penalty += 1e6
+      for (const lb of labelBoxes) penalty += overlapArea(box, lb)
+      if (hitDot) penalty += 3000
+      if (penalty < fallbackPenalty) { fallbackPenalty = penalty; fallback = box }
     }
 
-    // 라벨 자리를 못 찾아도 점은 찍는다. 자리가 없다고 가게를 지도에서 통째로
-    // 지우면 데이터를 숨기는 것이고, 사용자는 그 가게가 없는 줄 안다.
-    // 겹쳐서 둘 다 못 읽게 하느니 라벨만 접는다.
-    if (chosen) placed.push(chosen)
-    out.push({ item, anchor: a, box: chosen })
+    // 겹치지 않는 자리가 없으면 버리지 않고 가장 덜 겹치는 자리에 놓는다 —
+    // 모든 가게의 메뉴가 보여야 한다. (밀집 지역은 확대하면 저절로 벌어진다.)
+    const box = chosen ?? fallback
+    if (box) { blockers.push(box); labelBoxes.push(box) }
+    out.push({ item, anchor: a, box })
   }
 
   return out
