@@ -90,7 +90,7 @@ function FlyTo({ center }: { center: [number, number] | null }) {
     const key = center.join(',')
     if (key === last.current) return
     last.current = key
-    map.flyTo(center, Math.max(map.getZoom(), 16), { duration: 0.6 })
+    map.flyTo(center, Math.max(map.getZoom(), 16), { duration: 0.35 })
   }, [center, map])
   return null
 }

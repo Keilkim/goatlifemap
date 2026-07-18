@@ -45,27 +45,30 @@ export default function DirectionsLightbox({
   }, [])
 
   // 내 위치를 모르면 즉석 1회 조회. 실패하면 목적지만으로 연다.
+  //
+  // ⚠️ 위치 조회는 진입 애니메이션이 끝난 뒤로 미룬다. 모바일에선 위치 권한 프롬프트가
+  // 페이지의 rAF 루프를 멈추는데, 진입 애니메이션은 화면 밖(translateY 100%)에서 시작하므로
+  // 프롬프트가 같은 프레임에 뜨면 카드가 화면 밖에 얼어붙어 "안 뜬 것처럼" 보인다.
+  // 애니메이션이 자리를 잡은 뒤(≈420ms) 프롬프트를 띄우면 카드는 이미 보인다.
   useEffect(() => {
     if (userLocation) return
-    if (!navigator.geolocation) {
-      let alive = true
-      queueMicrotask(() => {
-        if (alive) setUrl(routeUrl(dest, null))
-      })
-      return () => { alive = false }
-    }
     let alive = true
-    navigator.geolocation.getCurrentPosition(
-      (pos) => {
-        if (!alive) return
-        const loc = { lat: pos.coords.latitude, lng: pos.coords.longitude }
-        onLocated(loc)
-        setUrl(routeUrl(dest, loc))
-      },
-      () => { if (alive) setUrl(routeUrl(dest, null)) }, // 거부/실패 → 목적지만
-      { enableHighAccuracy: true, timeout: 6000, maximumAge: 60000 }
-    )
-    return () => { alive = false }
+    const reduced = window.matchMedia('(prefers-reduced-motion: reduce)').matches
+    const timer = setTimeout(() => {
+      if (!alive) return
+      if (!navigator.geolocation) { setUrl(routeUrl(dest, null)); return }
+      navigator.geolocation.getCurrentPosition(
+        (pos) => {
+          if (!alive) return
+          const loc = { lat: pos.coords.latitude, lng: pos.coords.longitude }
+          onLocated(loc)
+          setUrl(routeUrl(dest, loc))
+        },
+        () => { if (alive) setUrl(routeUrl(dest, null)) }, // 거부/실패 → 목적지만
+        { enableHighAccuracy: true, timeout: 6000, maximumAge: 60000 }
+      )
+    }, reduced ? 0 : 460) // 460ms > 0.42s 스프링이 끝난 뒤
+    return () => { alive = false; clearTimeout(timer) }
   }, [dest, userLocation, onLocated])
 
   // 폴백 링크는 위치를 아직 못 잡았어도 최소 목적지로는 열 수 있게 한다.

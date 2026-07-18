@@ -83,18 +83,24 @@ export default function MenuLabels({
   }
 
   const size = map.getSize()
+  // 좁은 화면(모바일)에선 라벨 박스를 작게 잡아 더 많이 배치한다 —
+  // 168px 고정폭은 390px 화면의 43%라 몇 개 못 얹고 나머지는 점으로 버려졌다.
+  const compact = size.x < 480
+  const boxW = compact ? 128 : BOX_W
+  const rowsShown = compact ? 2 : MARKER_MENUS
+  const bandBottom = size.y < 700 ? 68 : 84
 
   // 상단 필터 바와 하단 토글이 차지한 자리. 그 밑에 라벨을 놓으면 가려서 안 보인다.
   const reserved: Box[] = [
     { x: 0, y: 0, w: size.x, h: 104 },
-    { x: 0, y: size.y - 84, w: size.x, h: 84 },
+    { x: 0, y: size.y - bandBottom, w: size.x, h: bandBottom },
   ]
 
   const boxSize = (s: Store) => {
-    if (view === 'store') return { w: Math.min(BOX_W, 40 + s.name.length * 12), h: 28 }
-    const rows = Math.min(s.menus.length, MARKER_MENUS)
-    const more = s.menus.length > MARKER_MENUS ? MORE_H : 0
-    return { w: BOX_W, h: 6 + rows * ROW_H + more }
+    if (view === 'store') return { w: Math.min(boxW, 40 + s.name.length * 12), h: 28 }
+    const rows = Math.min(s.menus.length, rowsShown)
+    const more = s.menus.length > rowsShown ? MORE_H : 0
+    return { w: boxW, h: 6 + rows * ROW_H + more }
   }
 
   // 싼 것부터 자리를 잡는다 — 자리가 모자라면 비싼 게 밀려나는 게 맞다.
@@ -164,7 +170,7 @@ export default function MenuLabels({
             </button>
           ) : (
             <div className="jm-pin jm-pin--menus">
-              {item.menus.slice(0, MARKER_MENUS).map((m) => (
+              {item.menus.slice(0, rowsShown).map((m) => (
                 <button
                   key={m.id}
                   // 누른 메뉴만 강조한다. 박스 전체를 두르면 아래 시트엔 메뉴 하나만
@@ -195,12 +201,12 @@ export default function MenuLabels({
                   </span>
                 </button>
               ))}
-              {item.menus.length > MARKER_MENUS && (
+              {item.menus.length > rowsShown && (
                 <button
                   className="jm-more"
                   onClick={tap(() => onStoreTap(item))}
                 >
-                  메뉴 {item.menus.length - MARKER_MENUS}개 더
+                  메뉴 {item.menus.length - rowsShown}개 더
                 </button>
               )}
             </div>

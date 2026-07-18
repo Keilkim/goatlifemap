@@ -28,7 +28,7 @@ const PRICE_STEPS = [5000, 7000, 10000] as const
 export default function Home() {
   const [stores, setStores] = useState<Store[]>([])
   const [loading, setLoading] = useState(true)
-  const [view, setView] = useState<ViewMode>('store')
+  const [view, setView] = useState<ViewMode>('menu')
   const [maxPrice, setMaxPrice] = useState<number>(10000)
   const [cats, setCats] = useState<string[]>([])
   const [selectedId, setSelectedId] = useState<string | null>(null)
@@ -66,8 +66,8 @@ export default function Home() {
 
   const dwell = useRef<DwellTimer | null>(null)
   // 세션 시작 + A/B 그룹 배정.
-  // 기본 보기를 한쪽으로 고정하면 그 보기 사용량이 당연히 높게 나와 니즈를 오독한다.
-  // 절반은 식당보기로, 절반은 메뉴보기로 시작시킨 뒤 반대편으로의 전환율을 비교한다.
+  // 기본 보기는 메뉴보기로 고정한다(제품 결정) — 이 서비스는 메뉴를 먼저 보여주는 게 맞다.
+  // variant는 분석·채팅 게이팅용으로 계속 배정하되 기본 보기엔 영향을 주지 않는다.
   useEffect(() => {
     let deviceId = localStorage.getItem('jm_device_id')
     if (!deviceId) {
@@ -87,7 +87,7 @@ export default function Home() {
         initAnalytics(d.userId, sessionId)
         setVariant(d.variant)
         setPoints(d.points)
-        const initial: ViewMode = d.variant === 'menu_first' ? 'menu' : 'store'
+        const initial: ViewMode = 'menu'
         setView(initial)
         dwell.current = new DwellTimer()
         track('view_init', { variant: d.variant, view: initial })
@@ -176,7 +176,9 @@ export default function Home() {
         setLocating(false)
         alert('위치 권한이 필요해요')
       },
-      { enableHighAccuracy: true, timeout: 8000, maximumAge: 30000 }
+      // 정밀 GPS(enableHighAccuracy)는 모바일에서 5~8초 걸린다. 지도 중심 잡기엔
+      // 네트워크(WiFi/셀) 위치로 충분하고 훨씬 빠르다. 캐시된 위치도 2분까지 재사용.
+      { enableHighAccuracy: false, timeout: 6000, maximumAge: 120000 }
     )
   }
 
