@@ -8,6 +8,7 @@ import { distanceMeters, walkMinutes } from '@/lib/coords'
 import { visibleRadius, radiusLabel } from '@/lib/geo'
 import { initAnalytics, track, DwellTimer } from '@/lib/analytics'
 import { CATEGORY_FILTERS } from '@/lib/categories'
+import MapLoading from '@/components/MapLoading'
 import Sheet from '@/components/Sheet'
 import MenuList from '@/components/MenuList'
 import MenuReview from '@/components/MenuReview'
@@ -268,6 +269,9 @@ export default function Home() {
         searchedCenter={searched ? [searched.lat, searched.lng] : null}
         onPopupClose={closeSheet}
       />
+
+      {/* 팬/필터로 데이터 받는 동안 지도 중앙 로딩 표시(카테고리 아이콘 통통) */}
+      {loading && <MapLoading />}
 
       {/* 상단 크롬 — 지도 위에 떠 있는 반투명 층. 지도를 잘라먹지 않는다. */}
       <div className="pointer-events-none absolute inset-x-0 top-0 z-[1100]">

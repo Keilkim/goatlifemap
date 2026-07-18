@@ -606,3 +606,25 @@ body {
   gap: 3px;
   min-width: 0;
 }
+
+/* 지도 로딩 표시 — 팬/필터로 데이터 받는 동안 중앙에서 카테고리 아이콘이 파도처럼 통통 튄다.
+   빠른 응답에선 안 깜빡이게 160ms 뒤에 서서히 나타난다. */
+.jm-loading {
+  opacity: 0;
+  animation: jm-loading-in 220ms ease-out 160ms forwards;
+}
+@keyframes jm-loading-in {
+  to { opacity: 1; }
+}
+.jm-hop {
+  animation: jm-hop 0.9s ease-in-out infinite;
+  will-change: transform;
+}
+@keyframes jm-hop {
+  0%, 55%, 100% { transform: translateY(0) scale(1); }
+  27% { transform: translateY(-9px) scale(1.14); }
+}
+@media (prefers-reduced-motion: reduce) {
+  .jm-loading { animation: none; opacity: 1; }
+  .jm-hop { animation: none; }
+}
